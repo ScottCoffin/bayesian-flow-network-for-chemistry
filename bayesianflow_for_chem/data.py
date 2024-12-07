@@ -98,7 +98,7 @@ def collate(batch: List) -> Dict[str, Tensor]:
     :return: batched {"token": token} or {"token": token, "value": value}
     """
     token = [i["token"] for i in batch]
-    if hasattr(os.environ, "MAX_PADDING_LENGTH"):
+    if "MAX_PADDING_LENGTH" in os.environ:
         lmax = int(os.environ["MAX_PADDING_LENGTH"])
     else:
         lmax = max([len(w) for w in token])
