@@ -7,8 +7,61 @@ from typing import List, Tuple, Optional
 import torch
 import torch.nn as nn
 from torch import Tensor
-from torch.nn.functional import softmax
+from torch.nn.functional import softmax, linear, dropout
 from typing_extensions import Self
+
+
+class Linear(nn.Linear):
+    # Modified from https://github.com/microsoft/LoRA/blob/main/loralib/layers.py
+    # We made it simpler and compatible with both `loralib` and `TorchScript`.
+    def __init__(self, in_features: int, out_features: int, bias: bool = True, **kargs):
+        """
+        LoRA implemented in a dense layer.
+
+        :param in_features: number of input features
+        :param out_features: number of output features
+        :param bias: whether to use additional bias
+        :param device: device
+        :param dtype: PyTorch data type
+        """
+        nn.Linear.__init__(self, in_features, out_features, bias, **kargs)
+        self.lora_enabled: bool = False
+        self.lora_A: Optional[nn.Parameter] = None
+        self.lora_B: Optional[nn.Parameter] = None
+        self.scaling: Optional[float] = None
+        self.lora_dropout: Optional[float] = None
+        nn.Linear.reset_parameters(self)
+
+    def enable_lora(
+        self, r: int = 8, lora_alpha: int = 1, lora_dropout: float = 0.0
+    ) -> None:
+        """
+        Enable LoRA parameters.
+
+        :param r: rank
+        :param lora_alpha: LoRA alpha value
+        :param lora_dropout: dropout frequency in LoRA layer
+        :return: None
+        """
+        assert r > 0, "Rank should be larger than 0."
+        self.lora_A = nn.Parameter(self.weight.new_zeros((r, self.in_features)))
+        self.lora_B = nn.Parameter(self.weight.new_zeros((self.out_features, r)))
+        self.scaling = lora_alpha / r
+        self.lora_dropout = lora_dropout
+        self.lora_enabled = True
+        nn.init.kaiming_uniform_(self.lora_A, a=5**0.5)
+        nn.init.zeros_(self.lora_B)
+        self.weight.requires_grad_(False)
+
+    def forward(self, x: Tensor) -> Tensor:
+        result = linear(x, self.weight, self.bias)
+        if self.lora_enabled and isinstance(self.lora_dropout, float):
+            result += (
+                dropout(x, self.lora_dropout, self.training)
+                @ self.lora_A.transpose(0, 1)
+                @ self.lora_B.transpose(0, 1)
+            ) * self.scaling
+        return result
 
 
 def modulate(x: Tensor, shift: Tensor, scale: Tensor) -> Tensor:
@@ -64,7 +117,7 @@ class Attention(nn.Module):
         self.d = channel // num_head  # head dimension
         self.nh = num_head  # number of heads
         self.tp = (2 * self.d) ** 0.5  # attention temperature
-        self.qkv = nn.Linear(channel, channel * 3)
+        self.qkv = Linear(channel, channel * 3)
 
     @staticmethod
     def _rotate(
@@ -111,6 +164,19 @@ class Attention(nn.Module):
         atten_out = atten_out.permute(1, 2, 0, 3).contiguous().view(shape)
         return atten_out
 
+    def enable_lora(
+        self, r: int = 4, lora_alpha: int = 1, lora_dropout: float = 0.0
+    ) -> None:
+        """
+        Enable LoRA parameters.
+
+        :param r: rank
+        :param lora_alpha: LoRA alpha value
+        :param lora_dropout: dropout frequency in LoRA layer
+        :return: None
+        """
+        self.qkv.enable_lora(r, lora_alpha, lora_dropout)
+
 
 class TransformerLayer(nn.Module):
     def __init__(
@@ -133,9 +199,7 @@ class TransformerLayer(nn.Module):
             nn.Linear(channel * 4, channel),
             nn.Dropout(dropout),
         )
-        self.adaln_modulation = nn.Sequential(
-            nn.SELU(), nn.Linear(channel, 6 * channel)
-        )
+        self.adaln_modulation = nn.Sequential(nn.SELU(), Linear(channel, 6 * channel))
         # zero-out adaLN layer
         nn.init.constant_(self.adaln_modulation[1].weight, 0)
         nn.init.constant_(self.adaln_modulation[1].bias, 0)
@@ -160,6 +224,20 @@ class TransformerLayer(nn.Module):
         x = x + gate_ffn * self.ffn(modulate(self.norm2(x), shift_ffn, scale_ffn))
         return x
 
+    def enable_lora(
+        self, r: int = 4, lora_alpha: int = 1, lora_dropout: float = 0.0
+    ) -> None:
+        """
+        Enable LoRA parameters.
+
+        :param r: rank
+        :param lora_alpha: LoRA alpha value
+        :param lora_dropout: dropout frequency in LoRA layer
+        :return: None
+        """
+        self.attention.enable_lora(r, lora_alpha, lora_dropout)
+        self.adaln_modulation[1].enable_lora(r, lora_alpha, lora_dropout)
+
 
 class FinalLayer(nn.Module):
     def __init__(self, num_vocab: int, channel: int = 512) -> None:
@@ -171,10 +249,8 @@ class FinalLayer(nn.Module):
         """
         super().__init__()
         self.norm_final = nn.LayerNorm(channel, 1e-6, False)
-        self.linear = nn.Linear(channel, num_vocab)
-        self.adaln_modulation = nn.Sequential(
-            nn.SELU(), nn.Linear(channel, 2 * channel)
-        )
+        self.linear = Linear(channel, num_vocab)
+        self.adaln_modulation = nn.Sequential(nn.SELU(), Linear(channel, 2 * channel))
         # zero-out this layer
         nn.init.constant_(self.linear.weight, 0)
         nn.init.constant_(self.linear.bias, 0)
@@ -195,6 +271,20 @@ class FinalLayer(nn.Module):
             return self.linear(x)
         return x
 
+    def enable_lora(
+        self, r: int = 4, lora_alpha: int = 1, lora_dropout: float = 0.0
+    ) -> None:
+        """
+        Enable LoRA parameters.
+
+        :param r: rank
+        :param lora_alpha: LoRA alpha value
+        :param lora_dropout: dropout frequency in LoRA layer
+        :return: None
+        """
+        self.linear.enable_lora(r, lora_alpha, lora_dropout)
+        self.adaln_modulation[1].enable_lora(r, lora_alpha, lora_dropout)
+
 
 class ChemBFN(nn.Module):
     def __init__(
@@ -208,6 +298,9 @@ class ChemBFN(nn.Module):
         r"""
         Bayesian Flow Network for Chemistry model representation.
 
+        Enable semi-autoregressive sampling by setting
+        `ChemBFN(...).semi_autoregressive = True`.
+
         :param num_vocab: number of vocabulary
         :param channel: hidden layer features
         :param num_layer: number of transformer layers
@@ -216,7 +309,9 @@ class ChemBFN(nn.Module):
         """
         super().__init__()
         self.K = num_vocab
-        self.embedding = nn.Linear(num_vocab, channel)
+        self.lora_enabled: bool = False
+        self.semi_autoregressive: bool = False
+        self.embedding = Linear(num_vocab, channel)
         self.time_embed = nn.Sequential(
             nn.Linear(1, channel // 2), nn.SELU(), nn.Linear(channel // 2, channel)
         )
@@ -233,6 +328,25 @@ class ChemBFN(nn.Module):
             num_head=num_head,
             dropout=dropout,
         )
+        self.lora_param = {}
+
+    def enable_lora(
+        self, r: int = 4, lora_alpha: int = 1, lora_dropout: float = 0.0
+    ) -> None:
+        """
+        Enable LoRA parameters.
+
+        :param r: rank
+        :param lora_alpha: LoRA alpha value
+        :param lora_dropout: dropout frequency in LoRA layer
+        :return: None
+        """
+        self.lora_enabled = True
+        self.lora_param = dict(r=r, lora_alpha=lora_alpha, lora_dropout=lora_dropout)
+        self.embedding.enable_lora(r, lora_alpha, lora_dropout)
+        for layer in self.encoder_layers:
+            layer.enable_lora(r, lora_alpha, lora_dropout)
+        self.final_layer.enable_lora(r, lora_alpha, lora_dropout)
 
     def forward(
         self,
@@ -249,20 +363,27 @@ class ChemBFN(nn.Module):
         :return: probability distribution (before softmax);  shape: (n_b, n_t, n_vocab)
                  or token embeddings;                        shape: (n_b, n_t, n_f)
         """
+        n_b, n_t, _ = x.shape
         c = self.time_embed(t)
         if y is not None:
             c += y
         pe = self.position(x.shape[1])
         x = self.embedding(x)
-        if mask is not None:
-            """
-            # Original Code.
+        attn_mask: Optional[Tensor] = None
+        if self.semi_autoregressive:
+            attn_mask = torch.tril(
+                torch.ones((1, n_b, n_t, n_t), device=self.beta.device), diagonal=0
+            )
+        else:
+            if mask is not None:
+                """
+                # Original Code.
 
-            mask = mask.transpose(-2, -1).repeat(1, x.shape[1], 1)[None, ...] == 0
-            """
-            mask = mask.transpose(-2, -1).repeat(1, x.shape[1], 1)[None, ...] != 0
+                attn_mask = mask.transpose(-2, -1).repeat(1, x.shape[1], 1)[None, ...] == 0
+                """
+                attn_mask = mask.transpose(-2, -1).repeat(1, n_t, 1)[None, ...] != 0
         for layer in self.encoder_layers:
-            x = layer(x, pe, c, mask)
+            x = layer(x, pe, c, attn_mask)
         return self.final_layer(x, c, mask is None)
 
     def calc_beta(self, t: Tensor) -> Tensor:
@@ -468,15 +589,17 @@ class ChemBFN(nn.Module):
         mask = (x != 0).float()[..., None]
         theta = 2 * torch.nn.functional.one_hot(x, self.K).float() - 1
         z = self.forward(theta, t, mask, None)
+        if self.semi_autoregressive:
+            return mlp.forward(z[x == 2].view(z.shape[0], -1))
         return mlp.forward(z[::, 0])
 
     @classmethod
-    def from_checkpoint(cls, ckpt: str, strict: bool = True) -> Self:
+    def from_checkpoint(cls, ckpt: str, ckpt_lora: Optional[str] = None) -> Self:
         """
         Load model weight from a checkpoint.
 
         :param ckpt: checkpoint file
-        :param strict: whether to strictly match `state_dict`
+        :param ckpt_lora: LoRA checkpoint file which is optional
         :return: Bayesian Flow Network for Chemistry model
         """
         with open(ckpt, "rb") as f:
@@ -489,7 +612,13 @@ class ChemBFN(nn.Module):
             hparam["num_head"],
             hparam["dropout"],
         )
-        model.load_state_dict(nn, strict)
+        model.load_state_dict(nn, False)
+        if ckpt_lora:
+            with open(ckpt_lora, "rb") as g:
+                lora_state = torch.load(g, "cpu", weights_only=True)
+            lora_nn, lora_param = lora_state["lora_nn"], lora_state["lora_param"]
+            model.enable_lora(**lora_param)
+            model.load_state_dict(lora_nn, False)
         return model
 
 

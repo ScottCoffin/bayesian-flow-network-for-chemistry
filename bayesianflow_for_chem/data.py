@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # Author: Nianze A. TAO (Omozawa SUENO)
 """
-Tokenise SMILES/SAFE/SELFIES strings.
+Tokenise SMILES/SAFE/SELFIES/GEO2SEQ/protein-sequence strings.
 """
 import os
 import re
@@ -32,8 +32,26 @@ SMI_REGEX_PATTERN = (
     r"~|@|\?|>>?|\*|\$|\%[0-9]{2}|[0-9])"
 )
 SEL_REGEX_PATTERN = r"(\[[^\]]+]|\.)"
+GEO_REGEX_PATTERN = (
+    r"(H[e,f,g,s,o]?|"
+    r"L[i,v,a,r,u]|"
+    r"B[e,r,a,i,h,k]?|"
+    r"C[l,a,r,o,u,d,s,n,e,m,f]?|"
+    r"N[e,a,i,b,h,d,o,p]?|"
+    r"O[s,g]?|S[i,c,e,r,n,m,b,g]?|"
+    r"K[r]?|T[i,c,e,a,l,b,h,m,s]|"
+    r"G[a,e,d]|R[b,u,h,e,n,a,f,g]|"
+    r"Yb?|Z[n,r]|P[t,o,d,r,a,u,b,m]?|"
+    r"F[e,r,l,m]?|M[g,n,o,t,c,d]|"
+    r"A[l,r,s,g,u,t,c,m]|I[n,r]?|"
+    r"W|X[e]|E[u,r,s]|U|D[b,s,y]|"
+    r"-|.| |[0-9])"
+)
+AA_REGEX_PATTERN = r"(A|B|C|D|E|F|G|H|I|K|L|M|N|P|Q|R|S|T|V|W|Y|Z|-|.)"
 smi_regex = re.compile(SMI_REGEX_PATTERN)
 sel_regex = re.compile(SEL_REGEX_PATTERN)
+geo_regex = re.compile(GEO_REGEX_PATTERN)
+aa_regex = re.compile(AA_REGEX_PATTERN)
 
 
 def load_vocab(
@@ -58,9 +76,17 @@ def load_vocab(
 
 
 _DEFUALT_VOCAB = load_vocab(__filedir__ / "vocab.txt")
-VOCAB_KEYS = _DEFUALT_VOCAB["vocab_keys"]
-VOCAB_DICT = _DEFUALT_VOCAB["vocab_dict"]
-VOCAB_COUNT = _DEFUALT_VOCAB["vocab_count"]
+VOCAB_KEYS: List[str] = _DEFUALT_VOCAB["vocab_keys"]
+VOCAB_DICT: Dict[str, int] = _DEFUALT_VOCAB["vocab_dict"]
+VOCAB_COUNT: int = _DEFUALT_VOCAB["vocab_count"]
+AA_VOCAB_KEYS = (
+    VOCAB_KEYS[0:3] + "A B C D E F G H I K L M N P Q R S T V W Y Z - .".split()
+)
+AA_VOCAB_COUNT = len(AA_VOCAB_KEYS)
+AA_VOCAB_DICT = dict(zip(AA_VOCAB_KEYS, range(AA_VOCAB_COUNT)))
+GEO_VOCAB_KEYS = VOCAB_KEYS[0:3] + [" "] + VOCAB_KEYS[22:150] + [".", "-"]
+GEO_VOCAB_COUNT = len(GEO_VOCAB_KEYS)
+GEO_VOCAB_DICT = dict(zip(GEO_VOCAB_KEYS, range(GEO_VOCAB_COUNT)))
 
 
 def smiles2vec(smiles: str) -> List[int]:
@@ -72,6 +98,28 @@ def smiles2vec(smiles: str) -> List[int]:
     """
     tokens = [token for token in smi_regex.findall(smiles)]
     return [VOCAB_DICT[token] for token in tokens]
+
+
+def geo2vec(geo2seq: str) -> List[int]:
+    """
+    Geo2Seq tokenisation using a dataset-independent regex pattern.
+
+    :param geo2seq: Geo2Seq string
+    :return: tokens w/o <start> and <end>
+    """
+    tokens = [token for token in geo_regex.findall(geo2seq)]
+    return [GEO_VOCAB_DICT[token] for token in tokens]
+
+
+def aa2vec(aa_seq: str) -> List[int]:
+    """
+    Protein sequence tokenisation using a dataset-independent regex pattern.
+
+    :param aa_seq: protein (amino acid) sequence
+    :return: tokens w/o <start> and <end>
+    """
+    tokens = [token for token in aa_regex.findall(aa_seq)]
+    return [AA_VOCAB_DICT[token] for token in tokens]
 
 
 def split_selfies(selfies: str) -> List[str]:
@@ -87,6 +135,16 @@ def split_selfies(selfies: str) -> List[str]:
 def smiles2token(smiles: str) -> Tensor:
     # start token: <start> = 1; end token: <esc> = 2
     return torch.tensor([1] + smiles2vec(smiles) + [2], dtype=torch.long)
+
+
+def geo2token(geo2seq: str) -> Tensor:
+    # start token: <start> = 1; end token: <esc> = 2
+    return torch.tensor([1] + geo2vec(geo2seq) + [2], dtype=torch.long)
+
+
+def aa2token(aa_seq: str) -> Tensor:
+    # start token: <start> = 1; end token: <end> = 2
+    return torch.tensor([1] + aa2vec(aa_seq) + [2], dtype=torch.long)
 
 
 def collate(batch: List) -> Dict[str, Tensor]:
@@ -136,16 +194,25 @@ class BaseCSVDataClass(Dataset):
         self.data = []
         with open(file, "r") as db:
             self.data = db.readlines()
-        self.label_idx = label_idx
-        self.smiles_idx, self.selfies_idx, self.value_idx = [], [], []
+        self.smiles_idx, self.selfies_idx, self.aa_idx = [], [], []
+        self.geo2seq_idx: Optional[int] = None
+        self.value_idx = []
         for key, i in enumerate(self.data[0].replace("\n", "").split(",")):
             i = i.lower()
-            if i == "smiles" or i == "safe":
+            if i == "smiles":
                 self.smiles_idx.append(key)
+            if i == "safe":
+                self.smiles_idx = [key]
             if i == "selfies":
                 self.selfies_idx.append(key)
+            if i == "seq":
+                self.aa_idx.append(key)
+            if i == "geo2seq":
+                self.geo2seq_idx = key
             if i == "value":
                 self.value_idx.append(key)
+        if self.value_idx and label_idx:
+            self.value_idx = [self.value_idx[j] for j in label_idx]
         if limit:
             self.data = self.data[: limit + 1]
 
@@ -166,13 +233,15 @@ class CSVData(BaseCSVDataClass):
             idx = idx.tolist()
         # valid `idx` should start from 1 instead of 0
         d: List[str] = self.data[idx + 1].replace("\n", "").split(",")
-        smiles = ".".join([d[i] for i in self.smiles_idx if d[i] != ""])
         values = [
             float(d[i]) if d[i].strip() != "" else torch.inf for i in self.value_idx
         ]
-        if self.label_idx:
-            values = [values[i] for i in self.label_idx]
-        token = smiles2token(smiles)
+        if self.smiles_idx:
+            smiles = ".".join([d[i] for i in self.smiles_idx if d[i] != ""])
+            token = smiles2token(smiles)
+        if self.geo2seq_idx is not None:
+            seq = d[self.geo2seq_idx]
+            token = geo2token(seq)
         out_dict = {"token": token}
         if len(values) != 0:
             out_dict["value"] = torch.tensor(values, dtype=torch.float32)
