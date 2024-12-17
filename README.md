@@ -13,6 +13,7 @@ Bayesian flow networks working on discrete data. A new accuracy schedule is prop
 
 ## News
 
+* [17/12/2024] The second paper of out-of-distribution generation is available on [arxiv.org](https://arxiv.org/abs/2412.11439).
 * [31/07/2024] Paper is available on [arxiv.org](https://arxiv.org/abs/2407.20294).
 * [21/07/2024] Paper was submitted to arXiv.
 
@@ -27,7 +28,7 @@ You can find pretrained models in [release](https://github.com/Augus1999/bayesia
 ## Dataset Format
 
 We provide a Python class [`CSVData`](./bayesianflow_for_chem/data.py) to handle data stored in CSV or similar format containing headers with the following tags:
-* __smiles__ or __safe__ or __selfies__ (_mandatory_): the entities under this tag should be molecule SMILES, SAFE or SELFIES strings. Multiple tags are acceptable.
+* __smiles__ or __safe__ or __selfies__ or __geo2seq__ (_mandatory_): the entities under this tag should be molecule SMILES, SAFE, SELFIES or Geo2Seq strings. Multiple tags are acceptable (however, if "safe" or "geo2seq" is used, only the items under the last tag will be loaded).
 * __value__ (_optional_): entities under this tag should be molecular properties or classes. Multiple tags are acceptable and in this case you can tell `CSVData` which value(s) should be loaded by specifying `label_idx=[...]`. If a property is not defined, leave it empty and the entity will be automatically masked to torch.inf telling the model that this property is unknown.
 
 ## Cite This Work
@@ -41,5 +42,17 @@ We provide a Python class [`CSVData`](./bayesianflow_for_chem/data.py) to handle
       archivePrefix={arXiv},
       primaryClass={cs.LG},
       url={https://arxiv.org/abs/2407.20294}, 
+}
+```
+Out-of-distribution generation:
+```bibtex
+@misc{2024chembfn_ood,
+      title={Bayesian Flow Is All You Need to Sample Out-of-Distribution Chemical Spaces}, 
+      author={Nianze Tao},
+      year={2024},
+      eprint={2412.11439},
+      archivePrefix={arXiv},
+      primaryClass={cs.LG},
+      url={https://arxiv.org/abs/2412.11439}, 
 }
 ```
