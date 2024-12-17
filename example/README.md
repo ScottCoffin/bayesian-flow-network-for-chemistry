@@ -10,7 +10,7 @@ $ python run_moses.py --datadir={YOUR_MOSES_DATASET_FOLDER} --samplestep=100
 $ python run_guacamol.py --datadir={YOUR_GUACAMOL_DATASET_FOLDER} --samplestep=100
 ```
 
-* To run the example of ZINC250k benchmark, you should first download the dataset from [here](https://github.com/SeulLee05/MOOD/blob/main/data/zinc250k.csv), then excute the python script as :
+* To run the example of ZINC250k benchmark, you should first download the dataset [here](https://github.com/SeulLee05/MOOD/blob/main/data/zinc250k.csv), then excute the python script as :
 ```bash
 $ python run_zinc250k.py --datadir={YOUR_GUACAMOL_DATASET_FOLDER} --train_mode={normal,sar} --target={parp1,fa7,5ht1b,braf,jak2} --samplestep=1000
 ```
