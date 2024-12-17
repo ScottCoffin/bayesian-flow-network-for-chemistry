@@ -8,6 +8,7 @@ from typing import Dict, Tuple, Union, Optional
 import torch
 import torch.optim as op
 import torch.nn.functional as F
+from loralib import lora_state_dict, mark_only_lora_as_trainable
 from torch import Tensor
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from lightning import LightningModule
@@ -44,6 +45,8 @@ class Model(LightningModule):
         self.model = model
         self.mlp = mlp
         self.save_hyperparameters(hparam, ignore=["model", "mlp"])
+        if model.lora_enabled:
+            mark_only_lora_as_trainable(self.model)
 
     def training_step(self, batch: Dict[str, Tensor]) -> Tensor:
         x = batch["token"]
@@ -87,10 +90,19 @@ class Model(LightningModule):
         :param workdir: the directory to save the model(s)
         :return: None
         """
-        torch.save(
-            {"nn": self.model.state_dict(), "hparam": self.model.hparam},
-            workdir / "model.pt",
-        )
+        if self.model.lora_enabled:
+            torch.save(
+                {
+                    "lora_nn": lora_state_dict(self.model),
+                    "lora_param": self.model.lora_param,
+                },
+                workdir / "lora.pt",
+            )
+        else:
+            torch.save(
+                {"nn": self.model.state_dict(), "hparam": self.model.hparam},
+                workdir / "model.pt",
+            )
         if self.mlp is not None:
             torch.save(
                 {"nn": self.mlp.state_dict(), "hparam": self.mlp.hparam},
@@ -119,6 +131,8 @@ class Regressor(LightningModule):
         self.mlp = mlp
         self.model.requires_grad_(not hparam["freeze"])
         self.save_hyperparameters(hparam, ignore=["model", "mlp"])
+        if model.lora_enabled:
+            mark_only_lora_as_trainable(self.model)
         assert hparam["mode"] in ("regression", "classification")
 
     @staticmethod
@@ -190,7 +204,16 @@ class Regressor(LightningModule):
             workdir / "readout.pt",
         )
         if not self.hparams.freeze:
-            torch.save(
-                {"nn": self.model.state_dict(), "hparam": self.model.hparam},
-                workdir / "model_ft.pt",
-            )
+            if self.model.lora_enabled:
+                torch.save(
+                    {
+                        "lora_nn": lora_state_dict(self.model),
+                        "lora_param": self.model.lora_param,
+                    },
+                    workdir / "lora.pt",
+                )
+            else:
+                torch.save(
+                    {"nn": self.model.state_dict(), "hparam": self.model.hparam},
+                    workdir / "model_ft.pt",
+                )
