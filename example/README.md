@@ -12,7 +12,7 @@ $ python run_guacamol.py --datadir={YOUR_GUACAMOL_DATASET_FOLDER} --samplestep=1
 
 * To run the example of ZINC250k benchmark, you should first download the dataset [here](https://github.com/SeulLee05/MOOD/blob/main/data/zinc250k.csv), then excute the python script as :
 ```bash
-$ python run_zinc250k.py --datadir={YOUR_GUACAMOL_DATASET_FOLDER} --train_mode={normal,sar} --target={parp1,fa7,5ht1b,braf,jak2} --samplestep=1000
+$ python run_zinc250k.py --datadir={YOUR_ZINC250K_DATASET_FOLDER} --train_mode={normal,sar} --target={parp1,fa7,5ht1b,braf,jak2} --samplestep=1000
 ```
 
 You can switch to the SELFIES version by using flag `--version=selfies`, but the package `selfies` is required.
