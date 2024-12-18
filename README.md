@@ -1,15 +1,22 @@
 # ChemBFN: Bayesian Flow Network for Chemistry
 
-**Abstract**: In this work, we introduce ChemBFN, a language model that handles chemistry tasks based on
-Bayesian flow networks working on discrete data. A new accuracy schedule is proposed to improve the sampling quality by significantly reducing the reconstruction loss. We show evidence that our method is appropriate for generating molecules with satisfied diversity even when a smaller number of sampling steps is used. A classifier-free guidance method is adapted for conditional generation. It is also worthwhile to point out that after generative training, our model can be fine-tuned on regression and classification tasks with the state-of-the-art performance, which opens the gate of building all-in-one models in a single module style.
+[![arxiv](https://img.shields.io/badge/arXiv-2407.20294-red)](https://arxiv.org/abs/2407.20294)
+[![arxiv](https://img.shields.io/badge/arXiv-2412.11439-red)](https://arxiv.org/abs/2412.11439)
 
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/a-bayesian-flow-network-framework-for/molecular-property-prediction-on-bbbp-1)](https://paperswithcode.com/sota/molecular-property-prediction-on-bbbp-1?p=a-bayesian-flow-network-framework-for)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/a-bayesian-flow-network-framework-for/molecular-property-prediction-on-clintox-1)](https://paperswithcode.com/sota/molecular-property-prediction-on-clintox-1?p=a-bayesian-flow-network-framework-for)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/a-bayesian-flow-network-framework-for/molecular-property-prediction-on-freesolv)](https://paperswithcode.com/sota/molecular-property-prediction-on-freesolv?p=a-bayesian-flow-network-framework-for)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/a-bayesian-flow-network-framework-for/molecular-property-prediction-on-hiv-dataset)](https://paperswithcode.com/sota/molecular-property-prediction-on-hiv-dataset?p=a-bayesian-flow-network-framework-for)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/a-bayesian-flow-network-framework-for/molecular-property-prediction-on-esol)](https://paperswithcode.com/sota/molecular-property-prediction-on-esol?p=a-bayesian-flow-network-framework-for)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/a-bayesian-flow-network-framework-for/molecular-property-prediction-on)](https://paperswithcode.com/sota/molecular-property-prediction-on?p=a-bayesian-flow-network-framework-for)
-[![PWC](https://img.shields.io/endpoint.svg?url=https://paperswithcode.com/badge/a-bayesian-flow-network-framework-for/molecular-property-prediction-on-bace-1)](https://paperswithcode.com/sota/molecular-property-prediction-on-bace-1?p=a-bayesian-flow-network-framework-for)
+This is the repository of the PyTorch implementation of ChemBFN model.
+
+## Features
+
+ChemBFN provides the state-of-the-art functionalities of
+* SMILES or SELFIES-based *de novo* molecule generation
+* Protein sequence *de novo* generation
+* Classifier-free guidance conditional generation (single or multi-objective optimisation)
+* Context-guided conditional generation (inpaint)
+* Outstanding out-of-distribution chemical space sampling
+* Molecular property and activity prediction finetuning
+* Reaction yield prediction finetuning
+
+in an all-in-one-model style.
 
 ## News
 
