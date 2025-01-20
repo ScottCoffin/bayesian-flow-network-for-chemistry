@@ -7,7 +7,6 @@ e.g.,
 $ python run_zinc250k.py --version=smiles --train_mode=sar --target=fa7 --samplestep=1000 --datadir="./dataset/zinc250k"
 """
 import os
-import csv
 import json
 import argparse
 from pathlib import Path
@@ -23,10 +22,10 @@ from bayesianflow_for_chem.data import (
     VOCAB_COUNT,
     VOCAB_KEYS,
     CSVData,
-    BaseCSVDataClass,
     collate,
-    split_selfies,
     load_vocab,
+    smiles2token,
+    split_selfies,
 )
 
 parser = argparse.ArgumentParser()
@@ -39,27 +38,25 @@ args = parser.parse_args()
 
 cwd = Path(__file__).parent
 targets = "parp1,fa7,5ht1b,braf,jak2".split(",")
+assert args.target in targets
 dataset_file = f"{args.datadir}/zinc250k.csv"
 workdir = cwd / f"zinc250k_{args.train_mode}/{args.target}_{args.version}"
 logdir = cwd / "log"
 max_epochs = 100
 l_hparam = {"lr": 5e-5, "lr_warmup_step": 1000, "uncond_prob": 0.2}
 
-with open(dataset_file, "r") as f:
-    _data = list(csv.reader(f))
-if "value" not in _data[0]:
-    # format dataset
-    dataset_file = dataset_file.replace(".csv", "_formatted.csv")
-    _data[0] = ["smiles"] + ["value"] * 7
-    with open(dataset_file, "w", newline="") as f:
-        writer = csv.writer(f)
-        writer.writerows(_data)
-
 if args.version.lower() == "smiles":
+
+    def encode(x):
+        smiles = x["smiles"][0]
+        value = [x["qed"], x["sa"], x[args.target]]
+        return {"token": smiles2token(smiles), "value": torch.tensor(value)}
+
     pad_len = 111
     num_vocab = VOCAB_COUNT
     vocab_keys = VOCAB_KEYS
-    train_data = CSVData(dataset_file, label_idx=[0, 1, targets.index(args.target) + 2])
+    train_data = CSVData(dataset_file)
+    train_data.map(encode)
 else:
     import selfies
 
@@ -97,27 +94,18 @@ else:
         return torch.tensor(
             [1] + [vocab_dict[i] for i in split_selfies(s)] + [2], dtype=torch.long
         )
+    
+    def encode(x):
+        s = x["selfies"][0]
+        value = [x["qed"], x["sa"], x[args.target]]
+        return {"token": selfies2token(s), "value": torch.tensor(value)}
 
-    class SELData(BaseCSVDataClass):
-        def __getitem__(self, idx) -> None:
-            if torch.is_tensor(idx):
-                idx = idx.tolist()
-            d = self.data[idx + 1].replace("\n", "").split(",")
-            values = [
-                float(d[i]) if d[i].strip() != "" else torch.inf for i in self.value_idx
-            ]
-            s = ".".join([d[i] for i in self.selfies_idx if d[i] != ""])
-            token = selfies2token(s)
-            out_dict = {"token": token}
-            if len(values) != 0:
-                out_dict["value"] = torch.tensor(values, dtype=torch.float32)
-            return out_dict
-
-    train_data = SELData(dataset_file, label_idx=[0, 1, targets.index(args.target) + 2])
+    train_data = CSVData(dataset_file)
+    train_data.map(encode)
 
 bfn = ChemBFN(num_vocab)
 mlp = MLP([3, 256, 512])
-model = Model(bfn, mlp, l_hparam)
+model = Model(bfn, mlp, hparam=l_hparam)
 if args.train_mode == "normal":
     model.model.semi_autoregressive = False
 elif args.train_mode == "sar":

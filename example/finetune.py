@@ -9,6 +9,7 @@ $ python fintune.py --name=esol --nepoch=100 --datadir="./dataset/moleculenet" -
 import os
 import argparse
 from pathlib import Path
+import torch
 import lightning as L
 from torch.utils.data import DataLoader
 from lightning.pytorch import loggers
@@ -16,7 +17,7 @@ from lightning.pytorch.callbacks import ModelCheckpoint
 from bayesianflow_for_chem import ChemBFN, MLP
 from bayesianflow_for_chem.tool import test
 from bayesianflow_for_chem.train import Regressor
-from bayesianflow_for_chem.data import collate, CSVData
+from bayesianflow_for_chem.data import smiles2token, collate, CSVData
 
 
 cwd = Path(__file__).parent
@@ -55,6 +56,13 @@ model = ChemBFN.from_checkpoint(args.ckpt)
 mlp = MLP([512, 256, args.ntask], dropout=args.dropout)
 regressor = Regressor(model, mlp, l_hparam)
 
+
+def encode(x):
+    smiles = x["smiles"][0]
+    value = x["value"]  # set your own value tag!
+    return {"token": smiles2token(smiles), "value": torch.tensor(value)}
+
+
 checkpoint_callback = ModelCheckpoint(dirpath=workdir, monitor="val_loss")
 logger = loggers.TensorBoardLogger(logdir, args.name)
 trainer = L.Trainer(
@@ -66,22 +74,24 @@ trainer = L.Trainer(
     enable_progress_bar=False,
 )
 
-traindata = DataLoader(
-    CSVData(datadir / f"{args.name}_train.csv"), 32, True, collate_fn=collate
-)
-valdata = DataLoader(CSVData(datadir / f"{args.name}_val.csv"), 32, collate_fn=collate)
-testdata = DataLoader(
-    CSVData(datadir / f"{args.name}_test.csv"), 32, collate_fn=collate
-)
+train_dataset = CSVData(datadir / f"{args.name}_train.csv")
+train_dataset.map(encode)
+train_dataloader = DataLoader(train_dataset, 32, True, collate_fn=collate)
+val_dataset = CSVData(datadir / f"{args.name}_val.csv")
+val_dataset.map(encode)
+val_dataloader = DataLoader(val_dataset, 32, collate_fn=collate)
+test_dataset = CSVData(datadir / f"{args.name}_test.csv")
+test_dataset.map(encode)
+test_dataloader = DataLoader(test_dataset, 32, collate_fn=collate)
 
 if __name__ == "__main__":
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
-    trainer.fit(regressor, traindata, valdata)
+    trainer.fit(regressor, train_dataloader, val_dataloader)
     regressor.export_model(workdir)
-    result = test(model, regressor.mlp, testdata, l_hparam["mode"])
+    result = test(model, regressor.mlp, test_dataloader, l_hparam["mode"])
     print("last:", result)
     regressor = Regressor.load_from_checkpoint(
         trainer.checkpoint_callback.best_model_path, model=model, mlp=mlp
     )
-    result = test(regressor.model, regressor.mlp, testdata, l_hparam["mode"])
+    result = test(regressor.model, regressor.mlp, test_dataloader, l_hparam["mode"])
     print("best:", result)

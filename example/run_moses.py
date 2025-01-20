@@ -24,9 +24,9 @@ from bayesianflow_for_chem.data import (
     VOCAB_COUNT,
     collate,
     load_vocab,
+    smiles2token,
     split_selfies,
     CSVData,
-    BaseCSVDataClass,
 )
 
 
@@ -49,6 +49,7 @@ if args.version.lower() == "smiles":
     vocab_keys = VOCAB_KEYS
     dataset_file = args.datadir + "/train.csv"
     train_data = CSVData(dataset_file)
+    train_data.map(lambda x: {"token": smiles2token(".".join(x["smiles"]))})
 else:
     import selfies
 
@@ -78,16 +79,8 @@ else:
             [1] + [vocab_dict[i] for i in split_selfies(s)] + [2], dtype=torch.long
         )
 
-    class SELData(BaseCSVDataClass):
-        def __getitem__(self, idx) -> None:
-            if torch.is_tensor(idx):
-                idx = idx.tolist()
-            d = self.data[idx + 1].replace("\n", "").split(",")
-            s = ".".join([d[i] for i in self.selfies_idx if d[i] != ""])
-            token = selfies2token(s)
-            return {"token": token}
-
-    train_data = SELData(dataset_file)
+    train_data = CSVData(dataset_file)
+    train_data.map(lambda x: {"token": selfies2token(".".join(x["selfies"]))})
 
 model = Model(ChemBFN(num_vocab))
 checkpoint_callback = ModelCheckpoint(dirpath=workdir, every_n_train_steps=1000)
