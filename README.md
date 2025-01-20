@@ -32,11 +32,54 @@ You can find example scripts in [📁example](./example) folder.
 
 You can find pretrained models in [release](https://github.com/Augus1999/bayesian-flow-network-for-chemistry/releases).
 
-## Dataset Format
+## Dataset Handling
 
-We provide a Python class [`CSVData`](./bayesianflow_for_chem/data.py) to handle data stored in CSV or similar format containing headers with the following tags:
-* __smiles__ or __safe__ or __selfies__ or __geo2seq__ (_mandatory_): the entities under this tag should be molecule SMILES, SAFE, SELFIES or Geo2Seq strings. Multiple tags are acceptable (however, if "safe" or "geo2seq" is used, only the items under the last tag will be loaded).
-* __value__ (_optional_): entities under this tag should be molecular properties or classes. Multiple tags are acceptable and in this case you can tell `CSVData` which value(s) should be loaded by specifying `label_idx=[...]`. If a property is not defined, leave it empty and the entity will be automatically masked to torch.inf telling the model that this property is unknown.
+We provide a Python class [`CSVData`](./bayesianflow_for_chem/data.py) to handle data stored in CSV or similar format containing headers to identify the entities. The following is a quickstart.
+
+1. Download your dataset file (e.g., ESOL form [MoleculeNet](https://deepchemdata.s3-us-west-1.amazonaws.com/datasets/delaney-processed.csv)) and split the file:
+```python
+>>> from bayesianflow_for_chem.tool import split_data
+
+>>> split_data("delaney-processed.csv", method="scaffold")
+```
+
+2. Load the split data:
+```python
+>>> from bayesianflow_for_chem.data import smiles2token, collate, CSVData
+
+>>> dataset = CSVData("delaney-processed_train.csv")
+>>> dataset[0]
+{'Compound ID': ['Thiophene'], 
+'ESOL predicted log solubility in mols per litre': ['-2.2319999999999998'], 
+'Minimum Degree': ['2'], 
+'Molecular Weight': ['84.14299999999999'], 
+'Number of H-Bond Donors': ['0'], 
+'Number of Rings': ['1'], 
+'Number of Rotatable Bonds': ['0'], 
+'Polar Surface Area': ['0.0'], 
+'measured log solubility in mols per litre': ['-1.33'], 
+'smiles': ['c1ccsc1']}
+```
+
+3. Create a mapping function to tokenise the dataset and select values:
+```python
+>>> import torch
+
+>>> def encode(x):
+...   smiles = x["smiles"][0]
+...   value = [float(i) for i in x["measured log solubility in mols per litre"]]
+...   return {"token": smiles2token(smiles), "value": torch.tensor(value)}
+
+>>> dataset.map(encode)
+>>> dataset[0]
+{'token': tensor([  1, 151,  23, 151, 151, 154, 151,  23,   2]), 
+'value': tensor([-1.3300])}
+```
+
+4. Wrap the dataset in <u>torch.utils.data.DataLoader</u>:
+```python
+>>> dataloader = torch.utils.data.DataLoader(dataset, 32, collate_fn=collate)
+```
 
 ## Cite This Work
 
