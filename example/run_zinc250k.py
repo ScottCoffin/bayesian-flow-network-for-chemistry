@@ -49,7 +49,8 @@ if args.version.lower() == "smiles":
 
     def encode(x):
         smiles = x["smiles"][0]
-        value = [x["qed"], x["sa"], x[args.target]]
+        value = [x["qed"][0], x["sa"][0], x[args.target][0]]
+        value = [float(i) for i in value]
         return {"token": smiles2token(smiles), "value": torch.tensor(value)}
 
     pad_len = 111
@@ -97,7 +98,8 @@ else:
     
     def encode(x):
         s = x["selfies"][0]
-        value = [x["qed"], x["sa"], x[args.target]]
+        value = [x["qed"][0], x["sa"][0], x[args.target][0]]
+        value = [float(i) for i in value]
         return {"token": selfies2token(s), "value": torch.tensor(value)}
 
     train_data = CSVData(dataset_file)

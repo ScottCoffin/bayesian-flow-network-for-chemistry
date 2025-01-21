@@ -60,6 +60,7 @@ regressor = Regressor(model, mlp, l_hparam)
 def encode(x):
     smiles = x["smiles"][0]
     value = x["value"]  # set your own value tag!
+    value = [float(i) if i != "" else torch.inf for i in value]
     return {"token": smiles2token(smiles), "value": torch.tensor(value)}
 
 
