@@ -1,6 +1,6 @@
 # ChemBFN: Bayesian Flow Network for Chemistry
 
-[![arxiv](https://img.shields.io/badge/arXiv-2407.20294-red)](https://arxiv.org/abs/2407.20294)
+[![DOI](https://zenodo.org/badge/DOI/10.1021/acs.jcim.4c01792.svg)](https://doi.org/10.1021/acs.jcim.4c01792)
 [![arxiv](https://img.shields.io/badge/arXiv-2412.11439-red)](https://arxiv.org/abs/2412.11439)
 
 This is the repository of the PyTorch implementation of ChemBFN model.
@@ -20,6 +20,7 @@ in an all-in-one-model style.
 
 ## News
 
+* [21/01/2025] Our first paper has been accepted by [JCIM](https://pubs.acs.org/doi/10.1021/acs.jcim.4c01792).
 * [17/12/2024] The second paper of out-of-distribution generation is available on [arxiv.org](https://arxiv.org/abs/2412.11439).
 * [31/07/2024] Paper is available on [arxiv.org](https://arxiv.org/abs/2407.20294).
 * [21/07/2024] Paper was submitted to arXiv.
@@ -30,7 +31,7 @@ You can find example scripts in [📁example](./example) folder.
 
 ## Pre-trained Model
 
-You can find pretrained models in [release](https://github.com/Augus1999/bayesian-flow-network-for-chemistry/releases).
+You can find pretrained models in [release](https://github.com/Augus1999/bayesian-flow-network-for-chemistry/releases) or on our [🤗Hugging Face model page](https://huggingface.co/suenoomozawa/ChemBFN).
 
 ## Dataset Handling
 
