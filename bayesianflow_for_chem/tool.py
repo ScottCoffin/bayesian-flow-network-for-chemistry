@@ -89,16 +89,16 @@ def test(
     predict_y, label_y = [], []
     for d in data:
         x, y = d["token"].to(device), d["value"]
+        label_y.append(y)
         if mode == "regression":
             y_hat = model.inference(x, mlp)
-            label_y.append(y)
         if mode == "classification":
-            y_hat = softmax(model.inference(x, mlp), -1)
-            label_y.append(y.flatten())
+            n_b, n_y = y.shape
+            y_hat = softmax(model.inference(x, mlp).reshape(n_b * n_y, -1), -1)
+            y_hat = y_hat.reshape(n_b, -1)
         predict_y.append(y_hat.detach().to("cpu"))
-    predict_y, label_y = torch.cat(predict_y, 0), torch.cat(label_y, 0)
+    predict_y, label_y = torch.cat(predict_y, 0), torch.cat(label_y, 0).split(1, -1)
     if mode == "regression":
-        label_y = label_y.split(1, -1)
         predict_y = [
             predict[label_y[i] != torch.inf]
             for (i, predict) in enumerate(predict_y.split(1, -1))
@@ -112,11 +112,22 @@ def test(
         r2 = [r2_score(label, predict) for (label, predict) in y_zipped]
         return {"MAE": mae, "RMSE": rmse, "R^2": r2}
     if mode == "classification":
-        predict_y = predict_y.numpy()
-        label_y = label_y.numpy()
-        roc_auc = roc_auc_score(label_y, predict_y[:, 1])
-        precision, recall, _ = precision_recall_curve(label_y, predict_y[:, 1])
-        prc_auc = auc(recall, precision)
+        n_c = len(label_y)
+        predict_y = predict_y.chunk(n_c, -1)
+        y_zipped = list(zip(label_y, predict_y))
+        roc_auc = [
+            roc_auc_score(
+                label.flatten(), predict[:, 1] if predict.shape[-1] == 2 else predict
+            )
+            for (label, predict) in y_zipped
+        ]
+        prc = [
+            precision_recall_curve(
+                label.flatten(), predict[:, 1] if predict.shape[-1] == 2 else predict
+            )[:2]
+            for (label, predict) in y_zipped
+        ]
+        prc_auc = [auc(recall, precision) for (precision, recall) in prc]
         return {"ROC-AUC": roc_auc, "PRC-AUC": prc_auc}
 
 
