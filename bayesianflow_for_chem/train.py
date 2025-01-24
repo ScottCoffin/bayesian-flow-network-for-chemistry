@@ -147,6 +147,8 @@ class Regressor(LightningModule):
         x, y = batch["token"], batch["value"]
         z = self.model.inference(x, self.mlp)
         if self.hparams.mode == "classification":
+            n_b, n_y = y.shape
+            z = z.reshape(n_b * n_y, -1)
             loss = F.cross_entropy(z, y.reshape(-1).to(torch.long))
         else:
             y_mask, y = self._mask_label(y)
@@ -158,7 +160,9 @@ class Regressor(LightningModule):
         x, y = batch["token"], batch["value"]
         z = self.model.inference(x, self.mlp)
         if self.hparams.mode == "classification":
-            val_loss = 1 - (torch.argmax(z, -1) == y).float().mean()
+            n_b, n_y = y.shape
+            z = z.reshape(n_b * n_y, -1)
+            val_loss = 1 - (torch.argmax(z, -1) == y.reshape(-1)).float().mean()
         else:
             y_mask, y = self._mask_label(y)
             val_loss = (z * y_mask - y).abs().sum() / y_mask.sum()
