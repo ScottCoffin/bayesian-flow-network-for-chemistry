@@ -119,7 +119,7 @@ def test(
             roc_auc_score(
                 label.flatten(),
                 predict[:, 1] if predict.shape[-1] == 2 else predict,
-                multi_class="ovo" if predict.shape[-1] == 2 else "raise",
+                multi_class="raise" if predict.shape[-1] == 2 else "ovo",
             )
             for (label, predict) in y_zipped
         ]
