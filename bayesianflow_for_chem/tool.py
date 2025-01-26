@@ -117,17 +117,20 @@ def test(
         y_zipped = list(zip(label_y, predict_y))
         roc_auc = [
             roc_auc_score(
-                label.flatten(), predict[:, 1] if predict.shape[-1] == 2 else predict
+                label.flatten(),
+                predict[:, 1] if predict.shape[-1] == 2 else predict,
+                multi_class="ovo" if predict.shape[-1] == 2 else "raise",
             )
             for (label, predict) in y_zipped
         ]
-        prc = [
-            precision_recall_curve(
-                label.flatten(), predict[:, 1] if predict.shape[-1] == 2 else predict
-            )[:2]
-            for (label, predict) in y_zipped
-        ]
-        prc_auc = [auc(recall, precision) for (precision, recall) in prc]
+        try:
+            prc = [
+                precision_recall_curve(label.flatten(), predict[:, 1])[:2]
+                for (label, predict) in y_zipped
+            ]
+            prc_auc = [auc(recall, precision) for (precision, recall) in prc]
+        except ValueError:
+            prc_auc = []
         return {"ROC-AUC": roc_auc, "PRC-AUC": prc_auc}
 
 
@@ -151,7 +154,7 @@ def split_dataset(
     raw_data = data[1:]
     smiles_idx = []  # only first index will be used
     for key, h in enumerate(header):
-        if h == "smiles":
+        if h.lower() == "smiles":
             smiles_idx.append(key)
     assert len(smiles_idx) > 0
     data_len = len(raw_data)
