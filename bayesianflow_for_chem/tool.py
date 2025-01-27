@@ -120,6 +120,7 @@ def test(
                 label.flatten(),
                 predict[:, 1] if predict.shape[-1] == 2 else predict,
                 multi_class="raise" if predict.shape[-1] == 2 else "ovo",
+                labels=None if predict.shape[-1] == 2 else range(predict.shape[-1]),
             )
             for (label, predict) in y_zipped
         ]
