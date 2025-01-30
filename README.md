@@ -29,7 +29,7 @@ in an all-in-one-model style.
 ## Install
 
 ```bash
-$ pip install -U bayesianflow_for_chemistry
+$ pip install -U bayesianflow_for_chem
 ```
 
 ## Usage
