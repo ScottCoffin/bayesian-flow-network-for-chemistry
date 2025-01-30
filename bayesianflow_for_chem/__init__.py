@@ -7,5 +7,5 @@ from . import data, tool, train, scorer
 from .model import ChemBFN, MLP
 
 __all__ = ["data", "tool", "train", "scorer", "ChemBFN", "MLP"]
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 __author__ = "Nianze A. Tao (Omozawa Sueno)"

@@ -13,6 +13,7 @@ ChemBFN provides the state-of-the-art functionalities of
 * Classifier-free guidance conditional generation (single or multi-objective optimisation)
 * Context-guided conditional generation (inpaint)
 * Outstanding out-of-distribution chemical space sampling
+* Fast sampling via ODE solver
 * Molecular property and activity prediction finetuning
 * Reaction yield prediction finetuning
 
@@ -24,6 +25,12 @@ in an all-in-one-model style.
 * [17/12/2024] The second paper of out-of-distribution generation is available on [arxiv.org](https://arxiv.org/abs/2412.11439).
 * [31/07/2024] Paper is available on [arxiv.org](https://arxiv.org/abs/2407.20294).
 * [21/07/2024] Paper was submitted to arXiv.
+
+## Install
+
+```bash
+$ pip install -U bayesianflow_for_chemistry
+```
 
 ## Usage
 

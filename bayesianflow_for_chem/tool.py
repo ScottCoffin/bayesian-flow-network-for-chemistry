@@ -6,6 +6,7 @@ Tools.
 import re
 import csv
 import random
+from pathlib import Path
 from typing import List, Dict, Tuple, Union, Optional
 import torch
 import numpy as np
@@ -80,7 +81,13 @@ def test(
     :param data: DataLoader instance
     :param mode: testing mode chosen from `'regression'` and `'classification'`
     :param device: hardware accelerator
+    :type model: bayesianflow_for_chem.model.ChemBFN
+    :type mlp: bayesianflow_for_chem.model.MLP
+    :type data: torch.utils.data.DataLoader
+    :type mode: str
+    :type device: str | torch.device | None
     :return: MAE & RMSE & R^2 / ROC-AUC & PRC-AUC
+    :rtype: dict
     """
     if device is None:
         device = _find_device()
@@ -136,7 +143,7 @@ def test(
 
 
 def split_dataset(
-    file: str, split_ratio: List[int] = [8, 1, 1], method: str = "random"
+    file: Union[str, Path], split_ratio: List[int] = [8, 1, 1], method: str = "random"
 ) -> None:
     """
     Split a dataset.
@@ -144,7 +151,11 @@ def split_dataset(
     :param file: dataset file <file>
     :param split_ratio: traing-testing-validation ratio
     :param method: chosen from `'random'` and `'scaffold'`
-    :return: None
+    :type file: str | pathlib.Path
+    :type split_ratio: list
+    :type method: str
+    :return:
+    :rtype: None
     """
     assert file.endswith(".csv")
     assert len(split_ratio) == 3
@@ -210,8 +221,13 @@ def geo2seq(
     :param symbols: a list of atomic symbols
     :param coordinates: Cartesian coordinates;  shape: (n_a, 3)
     :param decimals: number of decimal places to round to
-    :param angle_unit: 'degree' or 'radian'
+    :param angle_unit: `'degree'` or `'radian'`
+    :type symbols: list
+    :type coordinates: numpy.ndarray
+    :type decimals: int
+    :type angle_unit: str
     :return: `Geo2Seq` string
+    :rtype: str
     """
     assert angle_unit in ("degree", "radian")
     angle_scale = 180 / np.pi if angle_unit == "degree" else 1.0
@@ -287,8 +303,11 @@ def seq2geo(
     The method follows the descriptions in paper: https://arxiv.org/abs/2408.10120.
 
     :param seq: `Geo2Seq` string
-    :param angle_unit: 'degree' or 'radian'
-    :return: (symbols, coordinates)
+    :param angle_unit: `'degree'` or `'radian'`
+    :type seq: str
+    :type angle_unit: str
+    :return: (symbols, coordinates) if `seq` is valid
+    :rtype: tuple | None
     """
     assert angle_unit in ("degree", "radian")
     angle_scale = np.pi / 180 if angle_unit == "degree" else 1.0
@@ -324,6 +343,7 @@ def sample(
     device: Union[str, torch.device, None] = None,
     vocab_keys: List[str] = VOCAB_KEYS,
     seperator: str = "",
+    method: str = "BFN",
     allowed_tokens: Union[str, List[str]] = "all",
 ) -> List[str]:
     """
@@ -333,14 +353,28 @@ def sample(
     :param batch_size: batch size
     :param sequence_size: max sequence length
     :param sample_step: number of sampling steps
-    :param y: conditioning vector;      shape: (n_b, 1, n_f)
+    :param y: conditioning vector;  shape: (n_b, 1, n_f)
     :param guidance_strength: strength of conditional generation. It is not used if y is null.
     :param device: hardware accelerator
     :param vocab_keys: a list of (ordered) vocabulary
-    :param separator: token separator; default is ""
-    :param allowed_tokens: a list of allowed tokens; default is "all"
+    :param separator: token separator; default is `""`
+    :param method: sampling method chosen from `"ODE:x"` or `"BFN"` where `x` is the value of sampling temperature; default is `"BFN"`
+    :param allowed_tokens: a list of allowed tokens; default is `"all"`
+    :type model: bayesianflow_for_chem.model.ChemBFN
+    :type batch_size: int
+    :type sequence_size: int
+    :type sample_step: int
+    :type y: torch.Tensor | None
+    :type guidance_strength: float
+    :type device: str | torch.device | None
+    :type vocab_keys: list
+    :type separator: str
+    :type method: str
+    :type allowed_tokens: str | list
     :return: a list of generated molecular strings
+    :rtype: list
     """
+    assert method.split(":")[0].lower() in ("ode", "bfn")
     if device is None:
         device = _find_device()
     model.to(device).eval()
@@ -351,9 +385,16 @@ def sample(
         token_mask = torch.tensor([[token_mask]], dtype=torch.bool).to(device)
     else:
         token_mask = None
-    tokens = model.sample(
-        batch_size, sequence_size, y, sample_step, guidance_strength, token_mask
-    )
+    if "ode" in method.lower():
+        tp = float(method.split(":")[-1])
+        assert tp > 0, "Sampling temperature should be higher than 0."
+        tokens = model.ode_sample(
+            batch_size, sequence_size, y, sample_step, guidance_strength, token_mask, tp
+        )
+    else:
+        tokens = model.sample(
+            batch_size, sequence_size, y, sample_step, guidance_strength, token_mask
+        )
     return [
         seperator.join([vocab_keys[i] for i in j])
         .split("<start>" + seperator)[-1]
@@ -373,6 +414,7 @@ def inpaint(
     device: Union[str, torch.device, None] = None,
     vocab_keys: List[str] = VOCAB_KEYS,
     separator: str = "",
+    method: str = "BFN",
     allowed_tokens: Union[str, List[str]] = "all",
 ) -> List[str]:
     """
@@ -385,13 +427,27 @@ def inpaint(
     :param guidance_strength: strength of conditional generation. It is not used if y is null.
     :param device: hardware accelerator
     :param vocab_keys: a list of (ordered) vocabulary
-    :param separator: token separator; default is ""
-    :param allowed_tokens: a list of allowed tokens; default is "all"
+    :param separator: token separator; default is `""`
+    :param method: sampling method chosen from `"ODE:x"` or `"BFN"` where `x` is the value of sampling temperature; default is `"BFN"`
+    :param allowed_tokens: a list of allowed tokens; default is `"all"`
+    :type model: bayesianflow_for_chem.model.ChemBFN
+    :type x: torch.Tensor
+    :type sample_step: int
+    :type y: torch.Tensor | None
+    :type guidance_strength: float
+    :type device: str | torch.device | None
+    :type vocab_keys: list
+    :type separator: str
+    :type method: str
+    :type allowed_tokens: str | list
     :return: a list of generated molecular strings
+    :rtype: list
     """
+    assert method.split(":")[0].lower() in ("ode", "bfn")
     if device is None:
         device = _find_device()
     model.to(device).eval()
+    x = x.to(device)
     if y is not None:
         y = y.to(device)
     if isinstance(allowed_tokens, list):
@@ -399,7 +455,12 @@ def inpaint(
         token_mask = torch.tensor([[token_mask]], dtype=torch.bool).to(device)
     else:
         token_mask = None
-    tokens = model.inpaint(x.to(device), y, sample_step, guidance_strength, token_mask)
+    if "ode" in method.lower():
+        tp = float(method.split(":")[-1])
+        assert tp > 0, "Sampling temperature should be higher than 0."
+        tokens = model.ode_inpaint(x, y, sample_step, guidance_strength, token_mask, tp)
+    else:
+        tokens = model.inpaint(x, y, sample_step, guidance_strength, token_mask)
     return [
         separator.join([vocab_keys[i] for i in j])
         .split("<start>" + separator)[-1]

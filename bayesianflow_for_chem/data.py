@@ -6,7 +6,7 @@ Tokenise SMILES/SAFE/SELFIES/GEO2SEQ/protein-sequence strings.
 import os
 import re
 from pathlib import Path
-from typing import List, Dict, Union, Optional
+from typing import Any, List, Dict, Union, Callable
 import torch
 import torch.nn.functional as F
 from torch import Tensor
@@ -61,7 +61,9 @@ def load_vocab(
     Load vocabulary from source file.
 
     :param vocab_file: file that contains vocabulary
+    :type vocab_file: str | pathlib.Path
     :return: {"vocab_keys": vocab_keys, "vocab_count": vocab_count, "vocab_dict": vocab_dict}
+    :rtype: dict
     """
     with open(vocab_file, "r", encoding="utf-8") as f:
         lines = f.read().strip()
@@ -94,7 +96,9 @@ def smiles2vec(smiles: str) -> List[int]:
     SMILES tokenisation using a dataset-independent regex pattern.
 
     :param smiles: SMILES string
-    :return: tokens w/o <start> and <end>
+    :type smiles: str
+    :return: tokens w/o `<start>` and `<end>`
+    :rtype: list
     """
     tokens = [token for token in smi_regex.findall(smiles)]
     return [VOCAB_DICT[token] for token in tokens]
@@ -105,7 +109,9 @@ def geo2vec(geo2seq: str) -> List[int]:
     Geo2Seq tokenisation using a dataset-independent regex pattern.
 
     :param geo2seq: Geo2Seq string
-    :return: tokens w/o <start> and <end>
+    :type geo2seq: str
+    :return: tokens w/o `<start>` and `<end>`
+    :rtype: list
     """
     tokens = [token for token in geo_regex.findall(geo2seq)]
     return [GEO_VOCAB_DICT[token] for token in tokens]
@@ -116,7 +122,9 @@ def aa2vec(aa_seq: str) -> List[int]:
     Protein sequence tokenisation using a dataset-independent regex pattern.
 
     :param aa_seq: protein (amino acid) sequence
-    :return: tokens w/o <start> and <end>
+    :type aa_seq: str
+    :return: tokens w/o `<start>` and `<end>`
+    :rtype: list
     """
     tokens = [token for token in aa_regex.findall(aa_seq)]
     return [AA_VOCAB_DICT[token] for token in tokens]
@@ -127,7 +135,9 @@ def split_selfies(selfies: str) -> List[str]:
     SELFIES tokenisation.
 
     :param selfies: SELFIES string
+    :type selfies: str
     :return: SELFIES vocab
+    :rtype: list
     """
     return [token for token in sel_regex.findall(selfies)]
 
@@ -147,13 +157,15 @@ def aa2token(aa_seq: str) -> Tensor:
     return torch.tensor([1] + aa2vec(aa_seq) + [2], dtype=torch.long)
 
 
-def collate(batch: List) -> Dict[str, Tensor]:
+def collate(batch: List[Dict[str, Tensor]]) -> Dict[str, Tensor]:
     """
     Padding the data in one batch into the same size.\n
     Should be passed to `~torch.utils.data.DataLoader` as `DataLoader(collate_fn=collate, ...)`.
 
     :param batch: a list of data (one batch)
+    :type batch: list
     :return: batched {"token": token} or {"token": token, "value": value}
+    :rtype: dict
     """
     token = [i["token"] for i in batch]
     if "MAX_PADDING_LENGTH" in os.environ:

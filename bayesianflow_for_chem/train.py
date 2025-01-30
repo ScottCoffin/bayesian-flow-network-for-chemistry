@@ -13,6 +13,7 @@ from torch import Tensor
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 from lightning import LightningModule
 from .model import ChemBFN, MLP
+from .scorer import Scorer
 
 DEFAULT_MODEL_HPARAM = {"lr": 5e-5, "lr_warmup_step": 1000, "uncond_prob": 0.2}
 DEFAULT_REGRESSOR_HPARAM = {
@@ -30,6 +31,7 @@ class Model(LightningModule):
         self,
         model: ChemBFN,
         mlp: Optional[MLP] = None,
+        scorer: Optional[Scorer] = None,
         hparam: Dict[str, Union[int, float]] = DEFAULT_MODEL_HPARAM,
     ) -> None:
         """
@@ -39,14 +41,21 @@ class Model(LightningModule):
 
         :param model: `~bayesianflow_for_chem.model.ChemBFN` instance.
         :param mlp: `~bayesianflow_for_chem.model.MLP` instance or `None`.
+        :param scorer: `~bayesianflow_for_chem.scorer.Scorer` instance or `None`.
         :param hparam: a `dict` instance of hyperparameters. See `bayesianflow_for_chem.train.DEFAULT_MODEL_HPARAM`.
+        :type model: bayesianflow_for_chem.model.ChemBFN
+        :type mlp: bayesianflow_for_chem.model.MLP | None
+        :type scorer: bayesianflow_for_chem.scorer.Scorer | None
+        :type hparam: dict
         """
         super().__init__()
         self.model = model
         self.mlp = mlp
-        self.save_hyperparameters(hparam, ignore=["model", "mlp"])
+        self.scorer = scorer
+        self.save_hyperparameters(hparam, ignore=["model", "mlp", "scorer"])
         if model.lora_enabled:
             mark_only_lora_as_trainable(self.model)
+        self.use_scorer = self.scorer is not None
 
     def training_step(self, batch: Dict[str, Tensor]) -> Tensor:
         x = batch["token"]
@@ -62,10 +71,14 @@ class Model(LightningModule):
                 y = y[:, None, :]
             y_mask = F.dropout(torch.ones_like(t), self.hparams.uncond_prob, True, True)
             y_mask = (y_mask != 0).float()
-            loss = self.model.cts_loss(x, t, y * y_mask, mask)
+            loss, p = self.model.cts_loss(x, t, y * y_mask, mask, self.use_scorer)
         else:
-            loss = self.model.cts_loss(x, t, None, mask)
-        self.log("train_loss", loss.item())
+            loss, p = self.model.cts_loss(x, t, None, mask, self.use_scorer)
+        self.log("continuous_time_loss", loss.item())
+        if self.use_scorer:
+            scorer_loss = self.scorer.calc_score_loss(p)
+            self.log(f"{self.scorer.name}_loss", scorer_loss.item())
+            loss += scorer_loss * self.scorer.eta
         return loss
 
     def configure_optimizers(self) -> Dict[str, op.AdamW]:
@@ -88,7 +101,9 @@ class Model(LightningModule):
         Save the trained model.
 
         :param workdir: the directory to save the model(s)
-        :return: None
+        :type workdir: pathlib.Path
+        :return:
+        :rtype: None
         """
         if self.model.lora_enabled:
             torch.save(
@@ -125,6 +140,9 @@ class Regressor(LightningModule):
         :param model: `~bayesianflow_for_chem.model.ChemBFN` instance.
         :param mlp: `~bayesianflow_for_chem.model.MLP` instance.
         :param hparam: a `dict` instance of hyperparameters. See `bayesianflow_for_chem.train.DEFAULT_REGRESSOR_HPARAM`.
+        :type model: bayesianflow_for_chem.model.ChemBFN
+        :type mlp: bayesianflow_for_chem.model.MLP
+        :type hparam: dict
         """
         super().__init__()
         self.model = model
@@ -201,7 +219,9 @@ class Regressor(LightningModule):
         Save the trained model.
 
         :param workdir: the directory to save the model
-        :return: None
+        :type workdir: pathlib.Path
+        :return:
+        :rtype: None
         """
         torch.save(
             {"nn": self.mlp.state_dict(), "hparam": self.mlp.hparam},

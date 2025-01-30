@@ -3,7 +3,8 @@
 """
 Define Bayesian Flow Network for Chemistry (ChemBFN) model.
 """
-from typing import List, Tuple, Optional
+from pathlib import Path
+from typing import List, Tuple, Optional, Union
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -23,6 +24,11 @@ class Linear(nn.Linear):
         :param bias: whether to use additional bias
         :param device: device
         :param dtype: PyTorch data type
+        :type in_features: int
+        :type out_features: int
+        :type bias: bool
+        :type device: torch.device | str | None
+        :type dtype: torch.dtype
         """
         nn.Linear.__init__(self, in_features, out_features, bias, **kargs)
         self.lora_enabled: bool = False
@@ -41,7 +47,11 @@ class Linear(nn.Linear):
         :param r: rank
         :param lora_alpha: LoRA alpha value
         :param lora_dropout: dropout frequency in LoRA layer
-        :return: None
+        :type r: int
+        :type lora_alpha: float
+        :type lora_dropout: float
+        :return:
+        :rtype: None
         """
         assert r > 0, "Rank should be larger than 0."
         self.lora_A = nn.Parameter(self.weight.new_zeros((r, self.in_features)))
@@ -75,6 +85,8 @@ class RoPE(nn.Module):
 
         :param channel: hidden layer features
         :param num_head: number of heads
+        :type channel: int
+        :type num_head: int
         """
         super().__init__()
         d = channel // num_head
@@ -94,9 +106,11 @@ class RoPE(nn.Module):
     def forward(self, size: int) -> Tuple[Tensor, Tensor, Tensor]:
         """
         :param size: maximum length of sequence in the batch
-        :return: cos part of position encoding;  shape: (1, 1, n_t, n_h)
-                 sin part of position encoding;  shape: (1, 1, n_t, n_h)
+        :type size: int
+        :return: cos part of position encoding;  shape: (1, 1, n_t, n_h) \n
+                 sin part of position encoding;  shape: (1, 1, n_t, n_h) \n
                  scaling coefficients;           shape: (1, 1, n_t, n_h)
+        :rtype: tuple
         """
         pos = torch.arange(size, device=self.theta.device)[:, None]
         cos, sin = torch.cos(pos * self.theta), torch.sin(pos * self.theta)
@@ -111,6 +125,8 @@ class Attention(nn.Module):
 
         :param channel: hidden layer features
         :param num_head: number of heads
+        :type channel: int
+        :type num_head: int
         """
         super().__init__()
         assert channel % num_head == 0
@@ -139,7 +155,11 @@ class Attention(nn.Module):
         :param x: output tensor;       shape: (n_b, n_t, n_f)
         :param pe: position encoding;  shape: (1, 1, n_t, n_h) * 3
         :param mask: attention mask;   shape: (1, n_b, n_t, n_t)
+        :type x: torch.Tensor
+        :type pe: tuple
+        :type mask: torch.Tensor | None
         :return: attentioned output;   shape: (n_b, n_t, n_f)
+        :rtype: torch.Tensor
         """
         n_b, n_a, _ = shape = x.shape
         split = (n_b, n_a, self.nh, self.d)
@@ -173,7 +193,11 @@ class Attention(nn.Module):
         :param r: rank
         :param lora_alpha: LoRA alpha value
         :param lora_dropout: dropout frequency in LoRA layer
-        :return: None
+        :type r: int
+        :type lora_alpha: float
+        :type lora_dropout: float
+        :return:
+        :rtype: None
         """
         self.qkv.enable_lora(r, lora_alpha, lora_dropout)
 
@@ -188,6 +212,9 @@ class TransformerLayer(nn.Module):
         :param channel: hidden layer features
         :param num_head: number of attention heads
         :param dropout: dropout frequency
+        :type channel: int
+        :type num_head: int
+        :type dropout: float
         """
         super().__init__()
         self.norm1 = nn.LayerNorm(channel, 1e-6, False)
@@ -216,7 +243,12 @@ class TransformerLayer(nn.Module):
         :param pe: position encoding;  shape: (1, 1, n_t, n_h) * 3
         :param c: conditioning;        shape: (n_b, 1, n_f)
         :param mask: attention mask;   shape: (1, n_b, n_t, n_t)
+        :type x: torch.Tensor
+        :type pe: tuple
+        :type c: torch.Tensor
+        :type mask: torch.Tensor | None
         :return: output tensor;        shape: (n_b, n_t, n_f)
+        :rtype: torch.Tensor
         """
         c = self.adaln_modulation(c)
         shift, scale, gate, shift_ffn, scale_ffn, gate_ffn = c.chunk(6, -1)
@@ -233,7 +265,11 @@ class TransformerLayer(nn.Module):
         :param r: rank
         :param lora_alpha: LoRA alpha value
         :param lora_dropout: dropout frequency in LoRA layer
-        :return: None
+        :type r: int
+        :type lora_alpha: float
+        :type lora_dropout: float
+        :return:
+        :rtype: None
         """
         self.attention.enable_lora(r, lora_alpha, lora_dropout)
         self.adaln_modulation[1].enable_lora(r, lora_alpha, lora_dropout)
@@ -246,6 +282,8 @@ class FinalLayer(nn.Module):
 
         :param num_vocab: number of vocabulary
         :param channel: hidden layer features
+        :type num_vocab: int
+        :type channel: int
         """
         super().__init__()
         self.norm_final = nn.LayerNorm(channel, 1e-6, False)
@@ -262,8 +300,12 @@ class FinalLayer(nn.Module):
         :param x: input tensor;                 shape: (n_b, n_t, n_f)
         :param c: conditioning;                 shape: (n_b, 1, n_f)
         :param return_logits: whether to return unnormalised output logits
+        :type x: torch.Tensor
+        :type c: torch.Tensor
+        :type return_logits: bool
         :return: output logits (unnormalised);  shape: (n_b, n_t, n_vocab)
                  or token embeddings;           shape: (n_b, n_t, n_f)
+        :rtype: torch.Tensor
         """
         shift, scale = self.adaln_modulation(c).chunk(2, -1)
         x = modulate(self.norm_final(x), shift, scale)
@@ -280,7 +322,11 @@ class FinalLayer(nn.Module):
         :param r: rank
         :param lora_alpha: LoRA alpha value
         :param lora_dropout: dropout frequency in LoRA layer
-        :return: None
+        :type r: int
+        :type lora_alpha: float
+        :type lora_dropout: float
+        :return:
+        :rtype: None
         """
         self.linear.enable_lora(r, lora_alpha, lora_dropout)
         self.adaln_modulation[1].enable_lora(r, lora_alpha, lora_dropout)
@@ -306,6 +352,11 @@ class ChemBFN(nn.Module):
         :param num_layer: number of transformer layers
         :param num_head: number of heads
         :param dropout: dropout frequency
+        :type num_vocab: int
+        :type channel: int
+        :type num_layer: int
+        :type num_head: int
+        :type dropout: float
         """
         super().__init__()
         self.K = num_vocab
@@ -339,7 +390,11 @@ class ChemBFN(nn.Module):
         :param r: rank
         :param lora_alpha: LoRA alpha value
         :param lora_dropout: dropout frequency in LoRA layer
-        :return: None
+        :type r: int
+        :type lora_alpha: float
+        :type lora_dropout: float
+        :return:
+        :rtype: None
         """
         self.lora_enabled = True
         self.lora_param = dict(r=r, lora_alpha=lora_alpha, lora_dropout=lora_dropout)
@@ -360,8 +415,13 @@ class ChemBFN(nn.Module):
         :param t: time;                                      shape: (n_b, 1, 1)
         :param mask: input mask;                             shape: (n_b, n_t, 1)
         :param y: conditioning vector;                       shape: (n_b, 1, n_f)
+        :type x: torch.Tensor
+        :type t: torch.Tensor
+        :type mask: torch.Tensor | None
+        :type y: torch.Tensor | None
         :return: probability distribution (before softmax);  shape: (n_b, n_t, n_vocab)
                  or token embeddings;                        shape: (n_b, n_t, n_f)
+        :rtype: torch.Tensor
         """
         n_b, n_t, _ = x.shape
         c = self.time_embed(t)
@@ -390,13 +450,18 @@ class ChemBFN(nn.Module):
         r"""
         Calculate beta(t) value.
 
+        .. math::
+        ```
         \begin{equation}
             \beta(t) = %
             -\frac{4\ln{(1 - t + te^{-\frac{K}{4}\beta(1)})}}{K}
         \end{equation}
+        ```
 
         :param t: continuous time in [0, 1];  shape: (n_b, 1, 1)
+        :type t: torch.Tensor
         :return: beta(t);                     shape: (n_b, 1, 1)
+        :rtype: torch.Tensor
         """
         return -4 * (1 - t + t * (-self.K * self.beta / 4).exp()).log() / self.K
 
@@ -404,11 +469,14 @@ class ChemBFN(nn.Module):
         r"""
         Calculate alpha(i) value.
 
-        $\alpha(i) = \bate(t_{i}) - \beta(t_{i - 1})$
+        .. math:: $\alpha(i) = \bate(t_{i}) - \beta(t_{i - 1})$
 
         :param t1: discrete time (i - 1) / n;  shape: (n_b, 1, 1)
         :param t2: discrete time i / n;        shape: (n_b, 1, 1)
+        :type t1: torch.Tensor
+        :type t2: torch.Tensor
         :return: alpha(i);                     shape: (n_b, 1, 1)
+        :rtype: torch.Tensor
         """
         # assert t2 > t1
         return self.calc_beta(t2) - self.calc_beta(t1)
@@ -417,6 +485,8 @@ class ChemBFN(nn.Module):
         r"""
         Calculate alpha(t) / 2 value.
 
+        .. math::
+        ```
         \begin{equation}
             \alpha(t) = %
             \frac{d\beta(t)}{dt} = %
@@ -424,9 +494,12 @@ class ChemBFN(nn.Module):
             \frac{1 - e^{-\frac{K}{4}\beta(1)}}%
             {1 - t + te^{-\frac{K}{4}\beta(1)}}
         \end{equation}
+        ```
 
         :param t: continuous time in [0, 1];  shape: (n_b, 1, 1)
+        :type t: torch.Tensor
         :return: alpha(t);                    shape: (n_b, 1, 1)
+        :rtype: torch.Tensor
         """
         a = 1 - (-self.K * self.beta / 4).exp()
         b = 1 - t + t * (-self.K * self.beta / 4).exp()
@@ -440,7 +513,12 @@ class ChemBFN(nn.Module):
         :param t: continuous time in [0, 1];  shape: (n_b, 1, 1)
         :param y: conditioning vector;        shape: (n_b, 1, n_f)
         :param w: guidance strength controlling the conditional generation
+        :type theta: torch.Tensor
+        :type t: torch.Tensor
+        :type y: torch.Tensor | None
+        :type w: float | None
         :return: output distribution;         shape: (n_b, n_t, n_vocab)
+        :rtype: torch.Tensor
         """
         theta = 2 * theta - 1  # rescale to [-1, 1]
         if w is None:
@@ -453,8 +531,13 @@ class ChemBFN(nn.Module):
             return softmax((1 + w) * p_cond - w * p_uncond, -1)
 
     def cts_loss(
-        self, x: Tensor, t: Tensor, y: Optional[Tensor], mask: Optional[Tensor] = None
-    ) -> Tensor:
+        self,
+        x: Tensor,
+        t: Tensor,
+        y: Optional[Tensor],
+        mask: Optional[Tensor] = None,
+        return_output_dist: bool = False,
+    ) -> Tuple[Tensor, Optional[Tensor]]:
         """
         Compute continuous-time loss.
 
@@ -462,7 +545,15 @@ class ChemBFN(nn.Module):
         :param t: continuous time in [0, 1);  shape: (n_b, 1, 1)
         :param y: conditioning vector;        shape: (n_b, 1, n_f)
         :param mask: in-text mask;            shape: (n_b, n_t)
-        :return: continuous-time loss;        shape: ()
+        :param return_output_dist: whether to return the output distribution
+        :type x: torch.Tensor
+        :type t: torch.Tensor
+        :type y: torch.Tensor | None
+        :type mask: torch.Tensor | None
+        :type return_output_dist: bool
+        :returns: continuous-time loss;       shape: () \n
+                  output distribution;        shape: (n_b, n_t, n_vocab) or `None`
+        :rtype: tuple
         """
         beta = self.calc_beta(t)  # shape: (n_b, 1, 1)
         e_x = nn.functional.one_hot(x, self.K).float()
@@ -474,7 +565,9 @@ class ChemBFN(nn.Module):
             theta = e_x * mask + (1 - mask) * theta
         e_hat = self.discrete_output_distribution(theta, t, y, None)
         cts_loss = self.K * (e_x - e_hat).pow(2) * self.calc_cts_alpha(t)
-        return cts_loss.mean()
+        if return_output_dist:
+            return cts_loss.mean(), e_hat
+        return cts_loss.mean(), None
 
     @torch.inference_mode()
     def reconstruction_loss(self, x: Tensor, t: Tensor, y: Optional[Tensor]) -> Tensor:
@@ -484,7 +577,11 @@ class ChemBFN(nn.Module):
         :param x: target data;                shape: (n_b, n_t)
         :param t: continuous time in [0, 1];  shape: (n_b, 1, 1)
         :param y: conditioning vector;        shape: (n_b, 1, n_f)
+        :type x: torch.Tensor
+        :type t: torch.Tensor
+        :type y: torch.Tensor | None
         :return: reconstruction loss;         shape: ()
+        :rtype: torch.Tensor
         """
         beta = self.calc_beta(t)
         mu = beta * (self.K * nn.functional.one_hot(x, self.K).float() - 1)
@@ -514,7 +611,14 @@ class ChemBFN(nn.Module):
         :param sample_step: number of sampling steps
         :param guidance_strength: strength of conditional generation. It is not used if y is null.
         :param token_mask: token mask;      shape: (1, 1, n_vocab)
+        :type batch_size: int
+        :type sequence_size: int
+        :type y: torch.Tensor | None
+        :type sample_step: int
+        :type guidance_strength: float
+        :type token_mask: torch.Tensor | None
         :return: probability distribution;  shape: (n_b, n_t, n_vocab)
+        :rtype: torch.Tensor
         """
         theta = (
             torch.ones((batch_size, sequence_size, self.K), device=self.beta.device)
@@ -542,6 +646,58 @@ class ChemBFN(nn.Module):
         return torch.argmax(p, -1)
 
     @torch.jit.export
+    def ode_sample(
+        self,
+        batch_size: int,
+        sequence_size: int,
+        y: Optional[Tensor],
+        sample_step: int = 100,
+        guidance_strength: float = 4.0,
+        token_mask: Optional[Tensor] = None,
+        temperature: float = 0.5,
+    ) -> Tensor:
+        """
+        ODE-based sampling.
+
+        :param batch_size: batch size
+        :param sequence_size: max sequence length
+        :param y: conditioning vector;      shape: (n_b, 1, n_f)
+        :param sample_step: number of sampling steps
+        :param guidance_strength: strength of conditional generation. It is not used if y is null.
+        :param token_mask: token mask;      shape: (1, 1, n_vocab)
+        :param temperature: sampling temperature
+        :type batch_size: int
+        :type sequence_size: int
+        :type y: torch.Tensor | None
+        :type sample_step: int
+        :type guidance_strength: float
+        :type token_mask: torch.Tensor | None
+        :type temperature: float
+        :return: probability distribution;  shape: (n_b, n_t, n_vocab)
+        :rtype: torch.Tensor
+        """
+        z = torch.zeros((batch_size, sequence_size, self.K), device=self.beta.device)
+        if y is not None:
+            assert y.dim() == 3  # this doesn't work if the model is frezen in JIT.
+            if y.shape[0] == 1:
+                y = y.repeat(batch_size, 1, 1)
+        for i in torch.linspace(1, sample_step, sample_step, device=self.beta.device):
+            t = (i - 1).view(1, 1, 1).repeat(batch_size, 1, 1) / sample_step
+            theta = torch.softmax(z, -1)
+            beta = self.calc_beta(t + 1 / sample_step)
+            p = self.discrete_output_distribution(theta, t, y, guidance_strength)
+            if token_mask is not None:
+                p = p.masked_fill_(token_mask, 0.0)
+            u = torch.randn_like(z)
+            z = (self.K * p - 1) * beta + (self.K * beta * temperature).sqrt() * u
+        t_final = torch.ones((batch_size, 1, 1), device=self.beta.device)
+        theta = torch.softmax(z, -1)
+        p = self.discrete_output_distribution(theta, t_final, y, guidance_strength)
+        if token_mask is not None:
+            p = p.masked_fill_(token_mask, 0.0)
+        return torch.argmax(p, -1)
+
+    @torch.jit.export
     def inpaint(
         self,
         x: Tensor,
@@ -558,7 +714,13 @@ class ChemBFN(nn.Module):
         :param sample_step: number of sampling steps
         :param guidance_strength: strength of conditional generation. It is not used if y is null.
         :param token_mask: token mask;              shape: (1, 1, n_vocab)
+        :type x: torch.Tensor
+        :type y: torch.Tensor | None
+        :type sample_step: int
+        :type guidance_strength: float
+        :type token_mask: torch.Tensor | None
         :return: probability distribution;          shape: (n_b, n_t, n_vocab)
+        :rtype: torch.Tensor
         """
         n_b, n_t = x.shape
         mask = (x != 0).float()[..., None]
@@ -587,13 +749,70 @@ class ChemBFN(nn.Module):
             p = p.masked_fill_(token_mask, 0.0)
         return torch.argmax(p, -1)
 
+    @torch.jit.export
+    def ode_inpaint(
+        self,
+        x: Tensor,
+        y: Optional[Tensor] = None,
+        sample_step: int = 100,
+        guidance_strength: float = 4.0,
+        token_mask: Optional[Tensor] = None,
+        temperature: float = 0.5,
+    ) -> Tensor:
+        """
+        ODE inpainting.
+
+        :param x: categorical indices of scaffold;  shape: (n_b, n_t)
+        :param y: conditioning vector;              shape: (n_b, 1, n_f)
+        :param sample_step: number of sampling steps
+        :param guidance_strength: strength of conditional generation. It is not used if y is null.
+        :param token_mask: token mask;              shape: (1, 1, n_vocab)
+        :param temperature: sampling temperature
+        :type x: torch.Tensor
+        :type y: torch.Tensor | None
+        :type sample_step: int
+        :type guidance_strength: float
+        :type token_mask: torch.Tensor | None
+        :type temperature: float
+        :return: probability distribution;          shape: (n_b, n_t, n_vocab)
+        :rtype: torch.Tensor
+        """
+        n_b, n_t = x.shape
+        mask = (x != 0).float()[..., None]
+        x_onehot = nn.functional.one_hot(x, self.K) * mask
+        z = torch.zeros((n_b, n_t, self.K), device=self.beta.device)
+        if y is not None:
+            assert y.dim() == 3  # this doesn't work if the model is frezen in JIT.
+            if y.shape[0] == 1:
+                y = y.repeat(n_b, 1, 1)
+        for i in torch.linspace(1, sample_step, sample_step, device=self.beta.device):
+            t = (i - 1).view(1, 1, 1).repeat(n_b, 1, 1) / sample_step
+            theta = torch.softmax(z, -1)
+            theta = x_onehot + (1 - mask) * theta
+            beta = self.calc_beta(t + 1 / sample_step)
+            p = self.discrete_output_distribution(theta, t, y, guidance_strength)
+            if token_mask is not None:
+                p = p.masked_fill_(token_mask, 0.0)
+            u = torch.randn_like(z)
+            z = (self.K * p - 1) * beta + (self.K * beta * temperature).sqrt() * u
+        t_final = torch.ones((n_b, 1, 1), device=self.beta.device)
+        theta = torch.softmax(z, -1)
+        theta = x_onehot + (1 - mask) * theta
+        p = self.discrete_output_distribution(theta, t_final, y, guidance_strength)
+        if token_mask is not None:
+            p = p.masked_fill_(token_mask, 0.0)
+        return torch.argmax(p, -1)
+
     def inference(self, x: Tensor, mlp: nn.Module) -> Tensor:
         """
         Predict from SMILES tokens.
 
         :param x: input tokens;  shape: (n_b, n_t)
         :param mlp: MLP module
+        :type x: torch.Tensor
+        :type mlp: torch.nn.Module
         :return: output values;  shape: (n_b, n_task)
+        :rtype: torch.Tensor
         """
         t = torch.ones((x.shape[0], 1, 1), device=x.device)
         mask = (x != 0).float()[..., None]
@@ -604,13 +823,18 @@ class ChemBFN(nn.Module):
         return mlp.forward(z[::, 0])
 
     @classmethod
-    def from_checkpoint(cls, ckpt: str, ckpt_lora: Optional[str] = None) -> Self:
+    def from_checkpoint(
+        cls, ckpt: Union[str, Path], ckpt_lora: Union[str, Path, None] = None
+    ) -> Self:
         """
         Load model weight from a checkpoint.
 
         :param ckpt: checkpoint file
         :param ckpt_lora: LoRA checkpoint file which is optional
+        :type ckpt: str | pathlib.Path
+        :type ckpt_lora: str | pathlib.Path | None
         :return: Bayesian Flow Network for Chemistry model
+        :rtype: bayesianflow_for_chem.model.ChemBNF
         """
         with open(ckpt, "rb") as f:
             state = torch.load(f, "cpu", weights_only=True)
@@ -640,7 +864,7 @@ class MLP(nn.Module):
         MLP module.
         e.g.
 
-        ```
+        ```python
         mlp = MLP(size=[512, 256, 1])
         mlp = MLP(size=[10, 256, 512], True)  # embedding 10 classes
         ```
@@ -648,6 +872,9 @@ class MLP(nn.Module):
         :param size: hidden feature sizes
         :param class_input: whether the input is class indices
         :param dropout: dropout frequency
+        :type size: list
+        :type class_input: bool
+        :type dropout: float
         """
         super().__init__()
         assert len(size) >= 2
@@ -666,6 +893,8 @@ class MLP(nn.Module):
         :param x: input tensor;  shape: (n_b, n_input)
         :return: output tensor;  shape: (n_b, n_output) if not class_input;
                                         (n_b, 1, n_output) if class_input
+        :type x: torch.Tensor
+        :rtype: torch.Tensor
         """
         x = self.dropout(x)
         if self.class_input:
@@ -675,13 +904,16 @@ class MLP(nn.Module):
         return self.layers[-1](x)
 
     @classmethod
-    def from_checkpoint(cls, ckpt: str, strict: bool = True) -> Self:
+    def from_checkpoint(cls, ckpt: Union[str, Path], strict: bool = True) -> Self:
         """
-        load model weight from a checkpoint.
+        Load model weight from a checkpoint.
 
         :param ckpt: checkpoint file
         :param strict: whether to strictly match `state_dict`
+        :type ckpt: str | pathlib.Path
+        :type strict: bool
         :return: MLP
+        :rtype: bayesianflow_for_chem.model.MLP
         """
         with open(ckpt, "rb") as f:
             state = torch.load(f, "cpu", weights_only=True)
