@@ -31,7 +31,7 @@ model = ChemBFN.from_checkpoint("YOUR_MODEL.pt").eval().to("cuda")
 model = torch.jit.freeze(torch.jit.script(model), ["sample", "inpaint", "ode_sample", "ode_inpaint"])
 # or model.compile()
 # ------- generate molecules -------
-smiles = sample(model, 1, 60, 100)
+smiles = sample(model, 1, 60, 100, method="ODE:0.5")  # or `method="BFN"`
 # ------- inpaint (sacffold extension) -------
 scaffold = r"Cc1cc(OC5)cc(C6)c1."
 x = torch.tensor([1] + smiles2vec(scaffold) + [0] * (84 - len(scaffold)), dtype=torch.long)
