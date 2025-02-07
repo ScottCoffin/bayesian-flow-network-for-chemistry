@@ -617,7 +617,7 @@ class ChemBFN(nn.Module):
         :type sample_step: int
         :type guidance_strength: float
         :type token_mask: torch.Tensor | None
-        :return: probability distribution;  shape: (n_b, n_t, n_vocab)
+        :return: sampled token indices;     shape: (n_b, n_t)
         :rtype: torch.Tensor
         """
         theta = (
@@ -673,7 +673,7 @@ class ChemBFN(nn.Module):
         :type guidance_strength: float
         :type token_mask: torch.Tensor | None
         :type temperature: float
-        :return: probability distribution;  shape: (n_b, n_t, n_vocab)
+        :return: sampled token indices;     shape: (n_b, n_t)
         :rtype: torch.Tensor
         """
         z = torch.zeros((batch_size, sequence_size, self.K), device=self.beta.device)
@@ -719,7 +719,7 @@ class ChemBFN(nn.Module):
         :type sample_step: int
         :type guidance_strength: float
         :type token_mask: torch.Tensor | None
-        :return: probability distribution;          shape: (n_b, n_t, n_vocab)
+        :return: sampled token indices;             shape: (n_b, n_t)
         :rtype: torch.Tensor
         """
         n_b, n_t = x.shape
@@ -774,7 +774,7 @@ class ChemBFN(nn.Module):
         :type guidance_strength: float
         :type token_mask: torch.Tensor | None
         :type temperature: float
-        :return: probability distribution;          shape: (n_b, n_t, n_vocab)
+        :return: sampled token indices;             shape: (n_b, n_t)
         :rtype: torch.Tensor
         """
         n_b, n_t = x.shape
