@@ -93,25 +93,26 @@ We provide a Python class [`CSVData`](./bayesianflow_for_chem/data.py) to handle
 ## Cite This Work
 
 ```bibtex
-@misc{2024chembfn,
-      title={A Bayesian Flow Network Framework for Chemistry Tasks}, 
-      author={Nianze Tao and Minori Abe},
-      year={2024},
-      eprint={2407.20294},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2407.20294}, 
+@article{2025chembfn,
+    title={Bayesian Flow Network Framework for Chemistry Tasks},
+    author={Tao, Nianze and Abe, Minori},
+    journal={Journal of Chemical Information and Modeling},
+    volume={65},
+    number={3},
+    pages={1178-1187},
+    year={2025},
+    doi={10.1021/acs.jcim.4c01792},
 }
 ```
 Out-of-distribution generation:
 ```bibtex
 @misc{2024chembfn_ood,
-      title={Bayesian Flow Is All You Need to Sample Out-of-Distribution Chemical Spaces}, 
-      author={Nianze Tao},
-      year={2024},
-      eprint={2412.11439},
-      archivePrefix={arXiv},
-      primaryClass={cs.LG},
-      url={https://arxiv.org/abs/2412.11439}, 
+    title={Bayesian Flow Is All You Need to Sample Out-of-Distribution Chemical Spaces}, 
+    author={Nianze Tao},
+    year={2024},
+    eprint={2412.11439},
+    archivePrefix={arXiv},
+    primaryClass={cs.LG},
+    url={https://arxiv.org/abs/2412.11439}, 
 }
 ```
