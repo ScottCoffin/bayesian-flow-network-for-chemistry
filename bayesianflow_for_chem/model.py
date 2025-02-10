@@ -601,7 +601,7 @@ class ChemBFN(nn.Module):
         sample_step: int = 100,
         guidance_strength: float = 4.0,
         token_mask: Optional[Tensor] = None,
-    ) -> Tensor:
+    ) -> Tuple[Tensor, Tensor]:
         """
         Sample from a piror distribution.
 
@@ -617,8 +617,9 @@ class ChemBFN(nn.Module):
         :type sample_step: int
         :type guidance_strength: float
         :type token_mask: torch.Tensor | None
-        :return: sampled token indices;     shape: (n_b, n_t)
-        :rtype: torch.Tensor
+        :return: sampled token indices;     shape: (n_b, n_t) \n
+                 entropy of the tokens;     shape: (n_b)
+        :rtype: tuple
         """
         theta = (
             torch.ones((batch_size, sequence_size, self.K), device=self.beta.device)
@@ -641,9 +642,10 @@ class ChemBFN(nn.Module):
             theta = theta / theta.sum(-1, True)
         t_final = torch.ones((batch_size, 1, 1), device=self.beta.device)
         p = self.discrete_output_distribution(theta, t_final, y, guidance_strength)
+        entropy = -(p * p.log()).sum(-1).mean(-1)
         if token_mask is not None:
             p = p.masked_fill_(token_mask, 0.0)
-        return torch.argmax(p, -1)
+        return torch.argmax(p, -1), entropy
 
     @torch.jit.export
     def ode_sample(
@@ -655,7 +657,7 @@ class ChemBFN(nn.Module):
         guidance_strength: float = 4.0,
         token_mask: Optional[Tensor] = None,
         temperature: float = 0.5,
-    ) -> Tensor:
+    ) -> Tuple[Tensor, Tensor]:
         """
         ODE-based sampling.
 
@@ -673,8 +675,9 @@ class ChemBFN(nn.Module):
         :type guidance_strength: float
         :type token_mask: torch.Tensor | None
         :type temperature: float
-        :return: sampled token indices;     shape: (n_b, n_t)
-        :rtype: torch.Tensor
+        :return: sampled token indices;     shape: (n_b, n_t) \n
+                 entropy of the tokens;     shape: (n_b)
+        :rtype: tuple
         """
         z = torch.zeros((batch_size, sequence_size, self.K), device=self.beta.device)
         if y is not None:
@@ -693,9 +696,10 @@ class ChemBFN(nn.Module):
         t_final = torch.ones((batch_size, 1, 1), device=self.beta.device)
         theta = torch.softmax(z, -1)
         p = self.discrete_output_distribution(theta, t_final, y, guidance_strength)
+        entropy = -(p * p.log()).sum(-1).mean(-1)
         if token_mask is not None:
             p = p.masked_fill_(token_mask, 0.0)
-        return torch.argmax(p, -1)
+        return torch.argmax(p, -1), entropy
 
     @torch.jit.export
     def inpaint(
@@ -705,7 +709,7 @@ class ChemBFN(nn.Module):
         sample_step: int = 100,
         guidance_strength: float = 4.0,
         token_mask: Optional[Tensor] = None,
-    ) -> Tensor:
+    ) -> Tuple[Tensor, Tensor]:
         """
         Molecule inpaint functionality.
 
@@ -719,8 +723,9 @@ class ChemBFN(nn.Module):
         :type sample_step: int
         :type guidance_strength: float
         :type token_mask: torch.Tensor | None
-        :return: sampled token indices;             shape: (n_b, n_t)
-        :rtype: torch.Tensor
+        :return: sampled token indices;             shape: (n_b, n_t) \n
+                 entropy of the tokens;             shape: (n_b)
+        :rtype: tuple
         """
         n_b, n_t = x.shape
         mask = (x != 0).float()[..., None]
@@ -745,9 +750,10 @@ class ChemBFN(nn.Module):
             theta = x_onehot + (1 - mask) * theta
         t_final = torch.ones((n_b, 1, 1), device=x.device)
         p = self.discrete_output_distribution(theta, t_final, y, guidance_strength)
+        entropy = -(p * p.log()).sum(-1).mean(-1)
         if token_mask is not None:
             p = p.masked_fill_(token_mask, 0.0)
-        return torch.argmax(p, -1)
+        return torch.argmax(p, -1), entropy
 
     @torch.jit.export
     def ode_inpaint(
@@ -758,7 +764,7 @@ class ChemBFN(nn.Module):
         guidance_strength: float = 4.0,
         token_mask: Optional[Tensor] = None,
         temperature: float = 0.5,
-    ) -> Tensor:
+    ) -> Tuple[Tensor, Tensor]:
         """
         ODE inpainting.
 
@@ -774,8 +780,9 @@ class ChemBFN(nn.Module):
         :type guidance_strength: float
         :type token_mask: torch.Tensor | None
         :type temperature: float
-        :return: sampled token indices;             shape: (n_b, n_t)
-        :rtype: torch.Tensor
+        :return: sampled token indices;             shape: (n_b, n_t) \n
+                 entropy of the tokens;             shape: (n_b)
+        :rtype: tuple
         """
         n_b, n_t = x.shape
         mask = (x != 0).float()[..., None]
@@ -799,9 +806,10 @@ class ChemBFN(nn.Module):
         theta = torch.softmax(z, -1)
         theta = x_onehot + (1 - mask) * theta
         p = self.discrete_output_distribution(theta, t_final, y, guidance_strength)
+        entropy = -(p * p.log()).sum(-1).mean(-1)
         if token_mask is not None:
             p = p.masked_fill_(token_mask, 0.0)
-        return torch.argmax(p, -1)
+        return torch.argmax(p, -1), entropy
 
     def inference(self, x: Tensor, mlp: nn.Module) -> Tensor:
         """

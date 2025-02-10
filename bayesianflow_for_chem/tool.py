@@ -345,6 +345,7 @@ def sample(
     seperator: str = "",
     method: str = "BFN",
     allowed_tokens: Union[str, List[str]] = "all",
+    sort: bool = False,
 ) -> List[str]:
     """
     Sampling.
@@ -360,6 +361,7 @@ def sample(
     :param separator: token separator; default is `""`
     :param method: sampling method chosen from `"ODE:x"` or `"BFN"` where `x` is the value of sampling temperature; default is `"BFN"`
     :param allowed_tokens: a list of allowed tokens; default is `"all"`
+    :param sort: whether to sort the samples according to entropy values; default is `False`
     :type model: bayesianflow_for_chem.model.ChemBFN
     :type batch_size: int
     :type sequence_size: int
@@ -371,6 +373,7 @@ def sample(
     :type separator: str
     :type method: str
     :type allowed_tokens: str | list
+    :type sort: bool
     :return: a list of generated molecular strings
     :rtype: list
     """
@@ -388,13 +391,16 @@ def sample(
     if "ode" in method.lower():
         tp = float(method.split(":")[-1])
         assert tp > 0, "Sampling temperature should be higher than 0."
-        tokens = model.ode_sample(
+        tokens, entropy = model.ode_sample(
             batch_size, sequence_size, y, sample_step, guidance_strength, token_mask, tp
         )
     else:
-        tokens = model.sample(
+        tokens, entropy = model.sample(
             batch_size, sequence_size, y, sample_step, guidance_strength, token_mask
         )
+    if sort:
+        sorted_idx = entropy.argsort(stable=True)
+        tokens = tokens[sorted_idx]
     return [
         seperator.join([vocab_keys[i] for i in j])
         .split("<start>" + seperator)[-1]
@@ -416,6 +422,7 @@ def inpaint(
     separator: str = "",
     method: str = "BFN",
     allowed_tokens: Union[str, List[str]] = "all",
+    sort: bool = False,
 ) -> List[str]:
     """
     Inpaint (context guided) sampling.
@@ -430,6 +437,7 @@ def inpaint(
     :param separator: token separator; default is `""`
     :param method: sampling method chosen from `"ODE:x"` or `"BFN"` where `x` is the value of sampling temperature; default is `"BFN"`
     :param allowed_tokens: a list of allowed tokens; default is `"all"`
+    :param sort: whether to sort the samples according to entropy values; default is `False`
     :type model: bayesianflow_for_chem.model.ChemBFN
     :type x: torch.Tensor
     :type sample_step: int
@@ -440,6 +448,7 @@ def inpaint(
     :type separator: str
     :type method: str
     :type allowed_tokens: str | list
+    :type sort: bool
     :return: a list of generated molecular strings
     :rtype: list
     """
@@ -458,9 +467,16 @@ def inpaint(
     if "ode" in method.lower():
         tp = float(method.split(":")[-1])
         assert tp > 0, "Sampling temperature should be higher than 0."
-        tokens = model.ode_inpaint(x, y, sample_step, guidance_strength, token_mask, tp)
+        tokens, entropy = model.ode_inpaint(
+            x, y, sample_step, guidance_strength, token_mask, tp
+        )
     else:
-        tokens = model.inpaint(x, y, sample_step, guidance_strength, token_mask)
+        tokens, entropy = model.inpaint(
+            x, y, sample_step, guidance_strength, token_mask
+        )
+    if sort:
+        sorted_idx = entropy.argsort(stable=True)
+        tokens = tokens[sorted_idx]
     return [
         separator.join([vocab_keys[i] for i in j])
         .split("<start>" + separator)[-1]
