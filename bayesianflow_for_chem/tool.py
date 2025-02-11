@@ -12,6 +12,11 @@ import torch
 import numpy as np
 from torch import cuda, Tensor, softmax
 from torch.utils.data import DataLoader
+from torch.ao.quantization.quantize_pt2e import prepare_pt2e, convert_pt2e
+from torch.ao.quantization.quantizer.xnnpack_quantizer import (
+    XNNPACKQuantizer,
+    get_symmetric_quantization_config,
+)
 from rdkit.Chem import rdDetermineBonds, Bond, MolFromXYZBlock, CanonicalRankAtoms
 from rdkit.Chem.Scaffolds.MurckoScaffold import MurckoScaffoldSmiles  # type: ignore
 from sklearn.metrics import (
@@ -380,7 +385,10 @@ def sample(
     assert method.split(":")[0].lower() in ("ode", "bfn")
     if device is None:
         device = _find_device()
-    model.to(device).eval()
+    model.to(device)
+    if not isinstance(model, torch.fx.GraphModule):
+        model.eval()  # Calling eval() is not supported for GraphModule
+    # model.to(device).eval()
     if y is not None:
         y = y.to(device)
     if isinstance(allowed_tokens, list):
@@ -455,7 +463,10 @@ def inpaint(
     assert method.split(":")[0].lower() in ("ode", "bfn")
     if device is None:
         device = _find_device()
-    model.to(device).eval()
+    model.to(device)
+    if not isinstance(model, torch.fx.GraphModule):
+        model.eval()  # Calling eval() is not supported for GraphModule
+    # model.to(device).eval()
     x = x.to(device)
     if y is not None:
         y = y.to(device)
@@ -484,3 +495,54 @@ def inpaint(
         .replace("<pad>", "")
         for j in tokens
     ]
+
+
+def quantise_model(
+    model: ChemBFN, dataloader: DataLoader, mlp: Optional[MLP] = None
+) -> torch.fx.GraphModule:
+    """
+    Static quantisation of the input model.
+
+    :param model: trained ChemBFN model
+    :param dataloader: DataLoader instance containing example data for calibration
+    :param mlp: trained MLP model (guidance) if applied
+    :type model: bayesianflow_for_chem.model.ChemBFN
+    :type dataloader: torch.utils.data.DataLoader
+    :type mlp: bayesianflow_for_chem.model.MLP | None
+    :return: quantised model
+    :rtype: torch.fx.GraphModule
+    """
+    nb, nt = dataloader._get_iterator()._next_data()["token"].shape
+    x = 2 * softmax(torch.rand((nb, nt, model.K)), -1) - 1
+    t = torch.rand((nb, 1, 1))
+    y = torch.randn(nb, 1, model.embedding.weight.shape[0]) if mlp is not None else None
+    example_input = (2 * x - 1, t, None, y)
+    graph_model = torch.export.export_for_training(model, example_input).module()
+    quantizer = XNNPACKQuantizer().set_global(get_symmetric_quantization_config())
+    prepared_model = prepare_pt2e(graph_model, quantizer)
+    # ------- calibration -------
+    with torch.inference_mode():
+        for data in dataloader:
+            x = data["token"]
+            if x.shape[0] != nb:
+                break
+            if mlp is not None:
+                y = mlp(data["value"])[:, None, :]
+            else:
+                y = None
+            t = torch.rand((x.shape[0], 1, 1))
+            beta = model.calc_beta(t)
+            e_x = torch.nn.functional.one_hot(x, model.K).float()
+            mu = beta * (model.K * e_x - 1)
+            sigma = (beta * model.K).sqrt()
+            theta = softmax(mu + sigma * torch.randn_like(mu), -1)
+            prepared_model(2 * theta - 1, t, None, y)
+    quantised_model = convert_pt2e(prepared_model)
+    quantised_model = torch.export.export_for_training(
+        quantised_model, example_input
+    ).module()  # remove the weights of original model
+    quantised_model.sample = model.sample
+    quantised_model.ode_sample = model.ode_sample
+    quantised_model.inpaint = model.inpaint
+    quantised_model.ode_inpaint = model.ode_inpaint
+    return quantised_model
