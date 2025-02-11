@@ -6,7 +6,6 @@ Define Bayesian Flow Network for Chemistry (ChemBFN) model.
 from pathlib import Path
 from typing import List, Tuple, Optional, Union
 import torch
-import torch.ao.quantization
 import torch.nn as nn
 from torch import Tensor
 from torch.nn.functional import softmax, linear, dropout
