@@ -10,7 +10,7 @@ A project page usually has the main outcomes of that research, however, here I w
 
 ## Blog
 
-[12/02/2025] We tested quantisation method to ChemBFN that reduced to disk usage by 3/4. Need to test the speed later. 
+[12/02/2025] We tested quantisation method on ChemBFN that reduced the disk usage by 3/4. Need to test the speed later. 
 
 [22/01/2025] Readers may find our paper [*Bayesian Flow Network Framwork for Chemistry Tasks*](https://pubs.acs.org/doi/10.1021/acs.jcim.4c01792) published in JCIM is a little bit different from the [arXiv version](https://arxiv.org/abs/2407.20294). Don't worry, as it's well-known that the peer reviewed version is some kind of 'censored': we had to remove the result of ClinTox dataset because one reviewer criticised that a ROC-AUC > 0.99 was problematic. We leave readers judging it themselves.
 
