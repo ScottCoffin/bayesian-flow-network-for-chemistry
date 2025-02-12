@@ -11,6 +11,7 @@ from typing import List, Dict, Tuple, Union, Optional
 import torch
 import numpy as np
 from torch import cuda, Tensor, softmax
+from torch.ao.quantization import move_exported_model_to_eval
 from torch.utils.data import DataLoader
 from torch.ao.quantization.quantize_pt2e import prepare_pt2e, convert_pt2e
 from torch.ao.quantization.quantizer.xnnpack_quantizer import (
@@ -388,7 +389,6 @@ def sample(
     model.to(device)
     if not isinstance(model, torch.fx.GraphModule):
         model.eval()  # Calling eval() is not supported for GraphModule
-    # model.to(device).eval()
     if y is not None:
         y = y.to(device)
     if isinstance(allowed_tokens, list):
@@ -466,7 +466,6 @@ def inpaint(
     model.to(device)
     if not isinstance(model, torch.fx.GraphModule):
         model.eval()  # Calling eval() is not supported for GraphModule
-    # model.to(device).eval()
     x = x.to(device)
     if y is not None:
         y = y.to(device)
@@ -498,20 +497,29 @@ def inpaint(
 
 
 def quantise_model(
-    model: ChemBFN, dataloader: DataLoader, mlp: Optional[MLP] = None
+    model: ChemBFN,
+    dataloader: DataLoader,
+    mlp: Optional[MLP] = None,
+    save_model: bool = False,
+    save_model_file_path: Union[str, Path] = "qmodel.pt",
 ) -> torch.fx.GraphModule:
     """
-    Static quantisation of the input model.
+    Static quantisation of the trained model.
 
     :param model: trained ChemBFN model
     :param dataloader: DataLoader instance containing example data for calibration
     :param mlp: trained MLP model (guidance) if applied
+    :param save_model: whether to save the model
+    :param save_model_file_path: file name of the saved model; not used if `save_model=False`
     :type model: bayesianflow_for_chem.model.ChemBFN
     :type dataloader: torch.utils.data.DataLoader
     :type mlp: bayesianflow_for_chem.model.MLP | None
+    :type save_model: bool
+    :type save_model_file_path: str | pathlib.Path
     :return: quantised model
     :rtype: torch.fx.GraphModule
     """
+    model.eval()
     nb, nt = dataloader._get_iterator()._next_data()["token"].shape
     x = 2 * softmax(torch.rand((nb, nt, model.K)), -1) - 1
     t = torch.rand((nb, 1, 1))
@@ -522,6 +530,7 @@ def quantise_model(
     prepared_model = prepare_pt2e(graph_model, quantizer)
     # ------- calibration -------
     with torch.inference_mode():
+        move_exported_model_to_eval(prepared_model)
         for data in dataloader:
             x = data["token"]
             if x.shape[0] != nb:
@@ -537,6 +546,7 @@ def quantise_model(
             sigma = (beta * model.K).sqrt()
             theta = softmax(mu + sigma * torch.randn_like(mu), -1)
             prepared_model(2 * theta - 1, t, None, y)
+    # ---------------------------
     quantised_model = convert_pt2e(prepared_model)
     quantised_model = torch.export.export_for_training(
         quantised_model, example_input
@@ -545,4 +555,7 @@ def quantise_model(
     quantised_model.ode_sample = model.ode_sample
     quantised_model.inpaint = model.inpaint
     quantised_model.ode_inpaint = model.ode_inpaint
+    if save_model:
+        quantised_ep = torch.export.export(quantised_model, example_input)
+        torch.export.save(quantised_ep, save_model_file_path)
     return quantised_model
