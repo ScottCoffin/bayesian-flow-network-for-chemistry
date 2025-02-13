@@ -490,14 +490,14 @@ def inpaint(
     ]
 
 
-def quantise_model(model: ChemBFN) -> torch.jit.ScriptModule:
+def quantise_model(model: ChemBFN) -> nn.Module:
     """
     Dynamic quantisation of the trained model.
 
     :param model: trained ChemBFN model
     :type model: bayesianflow_for_chem.model.ChemBFN
     :return: quantised model
-    :rtype: torch.jit.ScriptModule
+    :rtype: torch.nn.Module
     """
     from torch.ao.nn.quantized.modules.utils import _quantize_weight
     from torch.ao.nn.quantized import dynamic
