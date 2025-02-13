@@ -54,29 +54,10 @@ model.enable_lora(r=4, ...)
 
 ## Quantise thy trained model
 
-1. Prepare your example dataset for calibration:
-```python
->>> import os
->>> from bayesianflow_for_chem.data import CSVData, smiles2token, collate
-
->>> os.environ["MAX_PADDING_LENGTH"] = "59"  # set to your value!
->>> dataset = CSVData("mock_data.csv")
->>> dataset.map(lambda x: {"token": smiles2token(".".join(x["smiles"]))})
->>> data = DataLoader(dataset, 5, collate_fn=collate)
-```
-
-2. Quantisation:
 ```python
 >>> from bayesianflow_for_chem.tool import quantise_model
 
->>> m = quantise_model(model, data, save_model=True, save_model_file_path="qmodel.pt")
+>>> m = quantise_model(model)
 ```
 
-3. Now `m` is your quantised model that can be directly used and the ExportedProgram has been saved to `qmodel.pt`. You can load the saved model as:
-```python
->>> quantised_model = torch.export.load("qmodel.pt").module()
->>> quantised_model.sample = model.sample  # add back the method
->>> quantised_model.inpaint = model.inpaint  # add back the method
->>> quantised_model.ode_sample = model.ode_sample  # add back the method
->>> quantised_model.ode_inpaint = model.ode_inpaint  # add back the method
-```
+Now `m` is your dyanmically quantised model that can be directly used.

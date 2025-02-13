@@ -6,18 +6,16 @@ Tools.
 import re
 import csv
 import random
+from copy import deepcopy
 from pathlib import Path
 from typing import List, Dict, Tuple, Union, Optional
 import torch
 import numpy as np
+import torch.nn as nn
 from torch import cuda, Tensor, softmax
-from torch.ao.quantization import move_exported_model_to_eval
+from torch.ao import quantization
 from torch.utils.data import DataLoader
-from torch.ao.quantization.quantize_pt2e import prepare_pt2e, convert_pt2e
-from torch.ao.quantization.quantizer.xnnpack_quantizer import (
-    XNNPACKQuantizer,
-    get_symmetric_quantization_config,
-)
+from typing_extensions import Self
 from rdkit.Chem import rdDetermineBonds, Bond, MolFromXYZBlock, CanonicalRankAtoms
 from rdkit.Chem.Scaffolds.MurckoScaffold import MurckoScaffoldSmiles  # type: ignore
 from sklearn.metrics import (
@@ -39,7 +37,7 @@ except ImportError:
     _use_pynauty = False
 
 from .data import VOCAB_KEYS
-from .model import ChemBFN, MLP
+from .model import ChemBFN, MLP, Linear
 
 
 _atom_regex_pattern = (
@@ -386,9 +384,7 @@ def sample(
     assert method.split(":")[0].lower() in ("ode", "bfn")
     if device is None:
         device = _find_device()
-    model.to(device)
-    if not isinstance(model, torch.fx.GraphModule):
-        model.eval()  # Calling eval() is not supported for GraphModule
+    model.to(device).eval()
     if y is not None:
         y = y.to(device)
     if isinstance(allowed_tokens, list):
@@ -463,9 +459,7 @@ def inpaint(
     assert method.split(":")[0].lower() in ("ode", "bfn")
     if device is None:
         device = _find_device()
-    model.to(device)
-    if not isinstance(model, torch.fx.GraphModule):
-        model.eval()  # Calling eval() is not supported for GraphModule
+    model.to(device).eval()
     x = x.to(device)
     if y is not None:
         y = y.to(device)
@@ -496,66 +490,124 @@ def inpaint(
     ]
 
 
-def quantise_model(
-    model: ChemBFN,
-    dataloader: DataLoader,
-    mlp: Optional[MLP] = None,
-    save_model: bool = False,
-    save_model_file_path: Union[str, Path] = "qmodel.pt",
-) -> torch.fx.GraphModule:
+def quantise_model(model: ChemBFN) -> torch.jit.ScriptModule:
     """
-    Static quantisation of the trained model.
+    Dynamic quantisation of the trained model.
 
     :param model: trained ChemBFN model
-    :param dataloader: DataLoader instance containing example data for calibration
-    :param mlp: trained MLP model (guidance) if applied
-    :param save_model: whether to save the model
-    :param save_model_file_path: file name of the saved model; not used if `save_model=False`
     :type model: bayesianflow_for_chem.model.ChemBFN
-    :type dataloader: torch.utils.data.DataLoader
-    :type mlp: bayesianflow_for_chem.model.MLP | None
-    :type save_model: bool
-    :type save_model_file_path: str | pathlib.Path
     :return: quantised model
-    :rtype: torch.fx.GraphModule
+    :rtype: torch.jit.ScriptModule
     """
-    model.eval()
-    nb, nt = dataloader._get_iterator()._next_data()["token"].shape
-    x = 2 * softmax(torch.rand((nb, nt, model.K)), -1) - 1
-    t = torch.rand((nb, 1, 1))
-    y = torch.randn(nb, 1, model.embedding.weight.shape[0]) if mlp is not None else None
-    example_input = (2 * x - 1, t, None, y)
-    graph_model = torch.export.export_for_training(model, example_input).module()
-    quantizer = XNNPACKQuantizer().set_global(get_symmetric_quantization_config())
-    prepared_model = prepare_pt2e(graph_model, quantizer)
-    # ------- calibration -------
-    with torch.inference_mode():
-        move_exported_model_to_eval(prepared_model)
-        for data in dataloader:
-            x = data["token"]
-            if x.shape[0] != nb:
-                break
-            if mlp is not None:
-                y = mlp(data["value"])[:, None, :]
+    from torch.ao.nn.quantized.modules.utils import _quantize_weight
+    from torch.ao.nn.quantized import dynamic
+
+    class QuantisedLinear(dynamic.Linear):
+        # Modified from https://github.com/pytorch/pytorch/blob/main/torch/ao/nn/quantized/dynamic/modules/linear.py
+        # We made it compatible with our LoRA linear layer.
+        # LoRA parameters will not be quantised.
+        def __init__(
+            self,
+            in_features: int,
+            out_features: int,
+            bias_: bool = True,
+            dtype: torch.dtype = torch.qint8,
+        ) -> None:
+            super().__init__(in_features, out_features, bias_, dtype=dtype)
+            self.version = self._version
+            self.lora_enabled: bool = False
+            self.lora_A: Optional[nn.Parameter] = None
+            self.lora_B: Optional[nn.Parameter] = None
+            self.scaling: Optional[float] = None
+            self.lora_dropout: Optional[float] = None
+
+        def enable_lora(
+            self, r: int = 8, lora_alpha: int = 1, lora_dropout: float = 0.0
+        ) -> None:
+            assert r > 0, "Rank should be larger than 0."
+            device = self._weight_bias()[0].device
+            self.lora_A = nn.Parameter(
+                torch.zeros((r, self.in_features), device=device)
+            )
+            self.lora_B = nn.Parameter(
+                torch.zeros((self.out_features, r), device=device)
+            )
+            self.scaling = lora_alpha / r
+            self.lora_dropout = lora_dropout
+            self.lora_enabled = True
+            nn.init.kaiming_uniform_(self.lora_A, a=5**0.5)
+            nn.init.zeros_(self.lora_B)
+            self._packed_params.requires_grad_(False)
+
+        def forward(self, x: Tensor) -> Tensor:
+            # Note that we can handle self.bias == None case.
+            if self._packed_params.dtype == torch.qint8:
+                if self.version is None or self.version < 4:
+                    Y = torch.ops.quantized.linear_dynamic(
+                        x, self._packed_params._packed_params
+                    )
+                else:
+                    Y = torch.ops.quantized.linear_dynamic(
+                        x, self._packed_params._packed_params, reduce_range=True
+                    )
+            elif self._packed_params.dtype == torch.float16:
+                Y = torch.ops.quantized.linear_dynamic_fp16(
+                    x, self._packed_params._packed_params
+                )
             else:
-                y = None
-            t = torch.rand((x.shape[0], 1, 1))
-            beta = model.calc_beta(t)
-            e_x = torch.nn.functional.one_hot(x, model.K).float()
-            mu = beta * (model.K * e_x - 1)
-            sigma = (beta * model.K).sqrt()
-            theta = softmax(mu + sigma * torch.randn_like(mu), -1)
-            prepared_model(2 * theta - 1, t, None, y)
-    # ---------------------------
-    quantised_model = convert_pt2e(prepared_model)
-    quantised_model = torch.export.export_for_training(
-        quantised_model, example_input
-    ).module()  # remove the weights of original model
-    quantised_model.sample = model.sample
-    quantised_model.ode_sample = model.ode_sample
-    quantised_model.inpaint = model.inpaint
-    quantised_model.ode_inpaint = model.ode_inpaint
-    if save_model:
-        quantised_ep = torch.export.export(quantised_model, example_input)
-        torch.export.save(quantised_ep, save_model_file_path)
+                raise RuntimeError("Unsupported dtype on dynamic quantized linear!")
+            result = Y.to(x.dtype)
+            if self.lora_enabled and isinstance(self.lora_dropout, float):
+                result += (
+                    nn.functional.dropout(x, self.lora_dropout, self.training)
+                    @ self.lora_A.transpose(0, 1)
+                    @ self.lora_B.transpose(0, 1)
+                ) * self.scaling
+            return result
+
+        @classmethod
+        def from_float(
+            cls, mod: Linear, use_precomputed_fake_quant: bool = False
+        ) -> Self:
+            assert hasattr(
+                mod, "qconfig"
+            ), "Input float module must have qconfig defined"
+            if mod.qconfig is not None and mod.qconfig.weight is not None:
+                weight_observer = mod.qconfig.weight()
+            else:
+                # We have the circular import issues if we import the qconfig in the beginning of this file:
+                # https://github.com/pytorch/pytorch/pull/24231. The current workaround is to postpone the
+                # import until we need it.
+                from torch.ao.quantization.qconfig import default_dynamic_qconfig
+
+                weight_observer = default_dynamic_qconfig.weight()
+            dtype = weight_observer.dtype
+            assert dtype in [torch.qint8, torch.float16], (
+                "The only supported dtypes for "
+                f"dynamic quantized linear are qint8 and float16 got: {dtype}"
+            )
+            weight_observer(mod.weight)
+            if dtype == torch.qint8:
+                qweight = _quantize_weight(mod.weight.float(), weight_observer)
+            elif dtype == torch.float16:
+                qweight = mod.weight.float()
+            else:
+                raise RuntimeError(
+                    "Unsupported dtype specified for dynamic quantized Linear!"
+                )
+            qlinear = cls(mod.in_features, mod.out_features, dtype=dtype)
+            qlinear.set_weight_bias(qweight, mod.bias)
+            if mod.lora_enabled:
+                qlinear.lora_enabled = True
+                qlinear.lora_A = mod.lora_A
+                qlinear.lora_B = mod.lora_B
+                qlinear.scaling = mod.scaling
+                qlinear.lora_dropout = mod.lora_dropout
+            return qlinear
+
+    mapping = deepcopy(quantization.DEFAULT_DYNAMIC_QUANT_MODULE_MAPPINGS)
+    mapping[Linear] = QuantisedLinear
+    quantised_model = quantization.quantize_dynamic(
+        model, {nn.Linear, Linear}, torch.qint8, mapping
+    )
     return quantised_model

@@ -847,7 +847,7 @@ class ChemBFN(nn.Module):
         with open(ckpt, "rb") as f:
             state = torch.load(f, "cpu", weights_only=True)
         nn, hparam = state["nn"], state["hparam"]
-        model = ChemBFN(
+        model = cls(
             hparam["num_vocab"],
             hparam["channel"],
             hparam["num_layer"],
@@ -926,7 +926,7 @@ class MLP(nn.Module):
         with open(ckpt, "rb") as f:
             state = torch.load(f, "cpu", weights_only=True)
         nn, hparam = state["nn"], state["hparam"]
-        model = MLP(hparam["size"], hparam["class_input"], hparam["dropout"])
+        model = cls(hparam["size"], hparam["class_input"], hparam["dropout"])
         model.load_state_dict(nn, strict)
         return model
 
