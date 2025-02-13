@@ -49,7 +49,7 @@ if args.version.lower() == "smiles":
     vocab_keys = VOCAB_KEYS
     dataset_file = args.datadir + "/train.csv"
     train_data = CSVData(dataset_file)
-    train_data.map(lambda x: {"token": smiles2token(".".join(x["smiles"]))})
+    train_data.map(lambda x: {"token": smiles2token(".".join(x["SMILES"]))})
 else:
     import selfies
 
