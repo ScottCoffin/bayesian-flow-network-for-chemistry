@@ -65,7 +65,7 @@ else:
     dataset_file = dataset_file.replace(".csv", "_selfies.csv")
     vocab_file = cwd / "zinc250k_selfies_vocab.txt"
     if not os.path.exists(dataset_file):
-        with open(cwd / "dataset/zinc15/zinc250k.csv", "r") as f:
+        with open(dataset_file.replace("_selfies.csv", "csv"), "r") as f:
             _data = f.readlines()
         selfies_list = []
         line0 = _data[0].split(",")
