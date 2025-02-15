@@ -95,7 +95,7 @@ else:
         return torch.tensor(
             [1] + [vocab_dict[i] for i in split_selfies(s)] + [2], dtype=torch.long
         )
-    
+
     def encode(x):
         s = x["selfies"][0]
         value = [x["qed"][0], x["sa"][0], x[args.target][0]]

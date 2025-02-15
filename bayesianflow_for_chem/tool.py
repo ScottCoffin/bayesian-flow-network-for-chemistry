@@ -521,6 +521,9 @@ def quantise_model(model: ChemBFN) -> nn.Module:
             self.scaling: Optional[float] = None
             self.lora_dropout: Optional[float] = None
 
+        def _get_name(self) -> str:
+            return "DynamicQuantizedLoRALinear"
+
         def enable_lora(
             self, r: int = 8, lora_alpha: int = 1, lora_dropout: float = 0.0
         ) -> None:
@@ -540,23 +543,7 @@ def quantise_model(model: ChemBFN) -> nn.Module:
             self._packed_params.requires_grad_(False)
 
         def forward(self, x: Tensor) -> Tensor:
-            # Note that we can handle self.bias == None case.
-            if self._packed_params.dtype == torch.qint8:
-                if self.version is None or self.version < 4:
-                    Y = torch.ops.quantized.linear_dynamic(
-                        x, self._packed_params._packed_params
-                    )
-                else:
-                    Y = torch.ops.quantized.linear_dynamic(
-                        x, self._packed_params._packed_params, reduce_range=True
-                    )
-            elif self._packed_params.dtype == torch.float16:
-                Y = torch.ops.quantized.linear_dynamic_fp16(
-                    x, self._packed_params._packed_params
-                )
-            else:
-                raise RuntimeError("Unsupported dtype on dynamic quantized linear!")
-            result = Y.to(x.dtype)
+            result = dynamic.Linear.forward(self, x)
             if self.lora_enabled and isinstance(self.lora_dropout, float):
                 result += (
                     nn.functional.dropout(x, self.lora_dropout, self.training)
@@ -598,11 +585,31 @@ def quantise_model(model: ChemBFN) -> nn.Module:
             qlinear = cls(mod.in_features, mod.out_features, dtype=dtype)
             qlinear.set_weight_bias(qweight, mod.bias)
             if mod.lora_enabled:
+                rg = mod.lora_A.requires_grad
                 qlinear.lora_enabled = True
-                qlinear.lora_A = mod.lora_A
-                qlinear.lora_B = mod.lora_B
-                qlinear.scaling = mod.scaling
-                qlinear.lora_dropout = mod.lora_dropout
+                qlinear.lora_A = mod.lora_A.clone().detach_().requires_grad_(rg)
+                qlinear.lora_B = mod.lora_B.clone().detach_().requires_grad_(rg)
+                qlinear.scaling = deepcopy(mod.scaling)
+                qlinear.lora_dropout = deepcopy(mod.lora_dropout)
+            return qlinear
+
+        @classmethod
+        def from_reference(cls, ref_qlinear: Self) -> Self:
+            qlinear = cls(
+                ref_qlinear.in_features,
+                ref_qlinear.out_features,
+                dtype=ref_qlinear.weight_dtype,
+            )
+            qweight = ref_qlinear.get_quantized_weight()
+            bias = ref_qlinear.bias
+            qlinear.set_weight_bias(qweight, bias)
+            if ref_qlinear.lora_enabled:
+                rg = ref_qlinear.lora_A.requires_grad
+                qlinear.lora_enabled = True
+                qlinear.lora_A = ref_qlinear.lora_A.clone().detach_().requires_grad_(rg)
+                qlinear.lora_B = ref_qlinear.lora_B.clone().detach_().requires_grad_(rg)
+                qlinear.scaling = deepcopy(ref_qlinear.scaling)
+                qlinear.lora_dropout = deepcopy(ref_qlinear.lora_dropout)
             return qlinear
 
     mapping = deepcopy(quantization.DEFAULT_DYNAMIC_QUANT_MODULE_MAPPINGS)
