@@ -585,10 +585,9 @@ def quantise_model(model: ChemBFN) -> nn.Module:
             qlinear = cls(mod.in_features, mod.out_features, dtype=dtype)
             qlinear.set_weight_bias(qweight, mod.bias)
             if mod.lora_enabled:
-                rg = mod.lora_A.requires_grad
                 qlinear.lora_enabled = True
-                qlinear.lora_A = mod.lora_A.clone().detach_().requires_grad_(rg)
-                qlinear.lora_B = mod.lora_B.clone().detach_().requires_grad_(rg)
+                qlinear.lora_A = nn.Parameter(mod.lora_A.clone().detach_())
+                qlinear.lora_B = nn.Parameter(mod.lora_B.clone().detach_())
                 qlinear.scaling = deepcopy(mod.scaling)
                 qlinear.lora_dropout = deepcopy(mod.lora_dropout)
             return qlinear
@@ -604,10 +603,9 @@ def quantise_model(model: ChemBFN) -> nn.Module:
             bias = ref_qlinear.bias
             qlinear.set_weight_bias(qweight, bias)
             if ref_qlinear.lora_enabled:
-                rg = ref_qlinear.lora_A.requires_grad
                 qlinear.lora_enabled = True
-                qlinear.lora_A = ref_qlinear.lora_A.clone().detach_().requires_grad_(rg)
-                qlinear.lora_B = ref_qlinear.lora_B.clone().detach_().requires_grad_(rg)
+                qlinear.lora_A = nn.Parameter(ref_qlinear.lora_A.clone().detach_())
+                qlinear.lora_B = nn.Parameter(ref_qlinear.lora_B.clone().detach_())
                 qlinear.scaling = deepcopy(ref_qlinear.scaling)
                 qlinear.lora_dropout = deepcopy(ref_qlinear.lora_dropout)
             return qlinear
