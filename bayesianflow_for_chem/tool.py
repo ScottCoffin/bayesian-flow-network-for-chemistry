@@ -492,15 +492,16 @@ def inpaint(
 
 def quantise_model(model: ChemBFN) -> nn.Module:
     """
-    Dynamic quantisation of the trained model.
+    Dynamic quantisation of the trained model to `torch.qint8` data type.
 
     :param model: trained ChemBFN model
     :type model: bayesianflow_for_chem.model.ChemBFN
     :return: quantised model
     :rtype: torch.nn.Module
     """
-    from torch.ao.nn.quantized.modules.utils import _quantize_weight
     from torch.ao.nn.quantized import dynamic
+    from torch.ao.nn.quantized.modules.utils import _quantize_weight
+    from torch.ao.quantization.qconfig import default_dynamic_qconfig
 
     class QuantisedLinear(dynamic.Linear):
         # Modified from https://github.com/pytorch/pytorch/blob/main/torch/ao/nn/quantized/dynamic/modules/linear.py
@@ -543,7 +544,22 @@ def quantise_model(model: ChemBFN) -> nn.Module:
             self._packed_params.requires_grad_(False)
 
         def forward(self, x: Tensor) -> Tensor:
-            result = dynamic.Linear.forward(self, x)
+            if self._packed_params.dtype == torch.qint8:
+                if self.version is None or self.version < 4:
+                    Y = torch.ops.quantized.linear_dynamic(
+                        x, self._packed_params._packed_params
+                    )
+                else:
+                    Y = torch.ops.quantized.linear_dynamic(
+                        x, self._packed_params._packed_params, reduce_range=True
+                    )
+            elif self._packed_params.dtype == torch.float16:
+                Y = torch.ops.quantized.linear_dynamic_fp16(
+                    x, self._packed_params._packed_params
+                )
+            else:
+                raise RuntimeError("Unsupported dtype on dynamic quantized linear!")
+            result = Y.to(x.dtype)
             if self.lora_enabled and isinstance(self.lora_dropout, float):
                 result += (
                     nn.functional.dropout(x, self.lora_dropout, self.training)
@@ -562,11 +578,6 @@ def quantise_model(model: ChemBFN) -> nn.Module:
             if mod.qconfig is not None and mod.qconfig.weight is not None:
                 weight_observer = mod.qconfig.weight()
             else:
-                # We have the circular import issues if we import the qconfig in the beginning of this file:
-                # https://github.com/pytorch/pytorch/pull/24231. The current workaround is to postpone the
-                # import until we need it.
-                from torch.ao.quantization.qconfig import default_dynamic_qconfig
-
                 weight_observer = default_dynamic_qconfig.weight()
             dtype = weight_observer.dtype
             assert dtype in [torch.qint8, torch.float16], (
