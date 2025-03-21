@@ -2,7 +2,7 @@
 <img src="image/social_preview.png" alt="social preview" width="650" height="auto">
 </p>
 
-A project page usually has the main outcomes of that research, however, here I want this page be more like a personal blog writting down any interesting things encountered during the research. Since our paper are short, in my opinion, we encourage readers to check the results on their own.
+A project page usually has the main outcomes of that research, however, here I want this page to be more like a personal blog written down any interesting things encountered during the research. Since our paper are short, in my opinion, we encourage readers to check the results on their own.
 
 ## Paper
 
