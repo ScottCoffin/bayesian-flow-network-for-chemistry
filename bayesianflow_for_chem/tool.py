@@ -161,6 +161,8 @@ def split_dataset(
     :return:
     :rtype: None
     """
+    if isinstance(file, Path):
+        file = file.__str__()
     assert file.endswith(".csv")
     assert len(split_ratio) == 3
     assert method in ("random", "scaffold")
@@ -170,7 +172,7 @@ def split_dataset(
     raw_data = data[1:]
     smiles_idx = []  # only first index will be used
     for key, h in enumerate(header):
-        if h.lower() == "smiles":
+        if "smiles" in h.lower():
             smiles_idx.append(key)
     assert len(smiles_idx) > 0
     data_len = len(raw_data)
@@ -186,6 +188,14 @@ def split_dataset(
         scaffolds: Dict[str, List] = {}
         for key, d in enumerate(raw_data):
             # compute Bemis-Murcko scaffold
+            if len(smiles_idx) > 1:
+                warnings.warn(
+                    "\033[32;1m"
+                    f"We found {len(smiles_idx)} SMILES strings in a row!"
+                    " Only the first SMILES will be used to compute the molecular scaffold."
+                    "\033[0m",
+                    stacklevel=2,
+                )
             scaffold = MurckoScaffoldSmiles(d[smiles_idx[0]])
             if scaffold in scaffolds:
                 scaffolds[scaffold].append(key)
