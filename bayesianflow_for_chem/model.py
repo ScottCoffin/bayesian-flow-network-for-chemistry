@@ -908,7 +908,7 @@ class MLP(nn.Module):
         if self.class_input:
             x = x.to(dtype=torch.long)
         for layer in self.layers[:-1]:
-            x = torch.selu(layer(x))
+            x = torch.selu(layer.forward(x))
         return self.layers[-1](x)
 
     @classmethod

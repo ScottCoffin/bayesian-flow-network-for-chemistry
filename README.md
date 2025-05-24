@@ -39,7 +39,7 @@ You can find example scripts in [📁example](./example) folder.
 
 ## Pre-trained Model
 
-You can find pretrained models in [release](https://github.com/Augus1999/bayesian-flow-network-for-chemistry/releases) or on our [🤗Hugging Face model page](https://huggingface.co/suenoomozawa/ChemBFN).
+You can find pretrained models on our [🤗Hugging Face model page](https://huggingface.co/suenoomozawa/ChemBFN).
 
 ## Dataset Handling
 
