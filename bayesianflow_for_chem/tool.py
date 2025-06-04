@@ -196,11 +196,14 @@ def split_dataset(
                     "\033[0m",
                     stacklevel=2,
                 )
-            scaffold = MurckoScaffoldSmiles(d[smiles_idx[0]])
-            if scaffold in scaffolds:
-                scaffolds[scaffold].append(key)
-            else:
-                scaffolds[scaffold] = [key]
+            try:
+                scaffold = MurckoScaffoldSmiles(d[smiles_idx[0]])
+                if scaffold in scaffolds:
+                    scaffolds[scaffold].append(key)
+                else:
+                    scaffolds[scaffold] = [key]
+            except ValueError:  # do nothing when SMILES is not valid
+                ...
         scaffolds = {key: sorted(value) for key, value in scaffolds.items()}
         train_set, test_set, val_set = [], [], []
         for idxs in scaffolds.values():
