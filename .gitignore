@@ -1,0 +1,4 @@
+models/zinc15_190m.pt
+data/delaney-processed_val.csv
+data/delaney-processed_train.csv
+data/delaney-processed_test.csv
